@@ -142,27 +142,31 @@ $j = "C:\Coding_Projects\jarvis\.venv\Scripts\jarvis.exe"
 
 ## 7. WHERE WE STOPPED
 
-The user started downloading **Qwen3-14B (Q4_K_M)** in LM Studio, but the
-**download was too slow to finish tonight**. We paused here. Nothing is broken —
-the whole memory core works; we're just waiting on the model file.
+**Runtime is live and the brain client is built.** Both models are downloaded.
+We loaded 14B first (fit, but only ~750 MiB VRAM free — too tight for an
+always-on agent on a gaming rig), then **switched the daily driver to Qwen3-8B**
+(3.68 GB free, ~2x speed, full 16k context, tool-use verified). 14B is kept
+installed-but-unloaded as the benchmark baseline / fallback (0 VRAM when idle).
+
+The **brain client** (`src/jarvis/brain/`) is built, tested against the live
+server, committed, and pushed. `jarvis brain` and `jarvis bench` both work;
+tool-calling PASSes on the 8B.
+
+**GitHub:** repo is live at https://github.com/willypete10ag/Jarvis (private).
+Local `main` tracks `origin/main`. Two commits pushed. Claude handles git ops
+(the user is new to git) — commit + push after each finished piece.
+
+Next up: the **background worker** (§8 step 4).
 
 ---
 
 ## 8. NEXT STEPS (in order)
 
-1. **User finishes the model download in LM Studio**, then loads Qwen3-14B with:
-   - GPU Offload: **max**
-   - Context Length: **16384** (start here)
-   - Flash Attention: **ON**
-   - K Cache Quant: **Q8_0**, V Cache Quant: **Q8_0**
-   - Then **Developer tab → Start Server** (`localhost:1234/v1`).
-   - *(Also grab Qwen3-8B Q4_K_M for the benchmark comparison.)*
-2. **User reports back:** `nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader`
-   after load, and "server's up."
-3. **Claude builds the "brain" client** — a small module talking to the
-   OpenAI-compatible endpoint (make base URL configurable in `config.py`,
-   default `http://localhost:1234/v1`). Then **benchmark 14B vs 8B** on the real
-   hardware (tok/s + VRAM + a tool-use prompt) to finalize the model.
+1. ✅ **DONE** — Both models downloaded; 8B loaded and serving on `:1234/v1`.
+2. ✅ **DONE** — VRAM measured (8B: 8.3 GB used / 3.68 GB free).
+3. ✅ **DONE** — Brain client built (`src/jarvis/brain/`), configurable endpoint
+   in `config.py`, tool-calling + thinking toggle + benchmark. 8B is the daily
+   driver. *(Optional later: run `jarvis bench` against 14B for a full head-to-head.)*
 4. **Background worker** — a loop (launched by Windows Task Scheduler at logon)
    that ticks on a timer, fires due reminders (`tasks.due_reminders()` →
    `mark_reminded()`), and works active tasks. Daily auto-backup via
@@ -179,12 +183,13 @@ the whole memory core works; we're just waiting on the model file.
 
 ## 9. Open items / loose ends
 
-- **Git: initial commit NOT yet made.** All files are staged (`git add -A` was
-  run). The user was asked whether to commit and hadn't answered when we paused.
-  Commit only when the user asks. Attribution footer to use when committing:
+- **Git: DONE.** Repo initialized, committed, and pushed to
+  https://github.com/willypete10ag/Jarvis (private). Branch renamed
+  `master`→`main`. Attribution footer for commits:
   `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
-- **Prebuilding the brain client** while waiting was offered; user opted to defer.
 - `.env` for secrets (Discord token, etc.) is git-ignored but not yet created.
+- **14B not deleted** — kept as unloaded fallback / benchmark baseline (0 VRAM
+  idle; re-downloading it is slow, so not worth reclaiming 9 GB of disk).
 
 ---
 
