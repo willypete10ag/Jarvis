@@ -24,8 +24,10 @@ to you over Discord. Nothing binding happens without your approval.
 | Local model runtime (LM Studio) | ✅ working |
 | Brain client (LLM + tool-calls) | ✅ working |
 | Background worker + reminders | ✅ working |
-| Discord bot (capture + notify) | ⏳ next |
-| Voice (STT/TTS, CPU) | later |
+| Discord bot (capture + notify) | ✅ working |
+| Natural-language task capture | ✅ working |
+| Voice (STT/TTS, CPU) | ✅ working (desk mic) |
+| Voice over Discord ("call" rehearsal) | ⏳ next |
 | Telephony (real calls) | deferred (not free) |
 
 ## The model

@@ -140,6 +140,27 @@ $j = "C:\Coding_Projects\jarvis\.venv\Scripts\jarvis.exe"
 
 ---
 
+## 6.5 BIG UPDATE (2026-09-24 session cont.)
+
+Since the runtime went live we shipped, in order, each tested + pushed:
+- **Brain client** (`brain/`) — LLM chat + tool-calling + benchmark. Daily
+  driver = **Qwen3-8B** (14B kept as unloaded fallback).
+- **Background worker** (`worker.py`, `notify.py`, `autostart.py`) — timer loop
+  fires due reminders as Windows toasts + console, daily DB backup, `autostart`
+  installs a logon task.
+- **Discord bot** (`discord_bot.py`) — DM it in plain English to capture tasks;
+  it DMs reminders to you (owner learned from first DM or `DISCORD_OWNER_ID`).
+  Bot = **J.A.R.V.I.S.#7340**, logs in fine. Token in `.env` (git-ignored).
+- **NL capture agent** (`brain/agent.py`) — shared by Discord + `jarvis capture`.
+- **Reliable dates** (`timeparse.py` + `parsedatetime`) — "next Friday" etc.
+  resolved in code, not by the model.
+- **Voice** (`voice/`) — `jarvis voice` = desk-mic session: Whisper STT (CPU) →
+  agent → **Kokoro** TTS (CPU, user disliked Piper). Models in `data/models/`
+  (git-ignored). STT↔TTS round-trip verified; live mic/speaker use untested
+  (needs a human) — **user to try `jarvis voice`**.
+
+All on GitHub (`willypete10ag/Jarvis`, private), 6 commits.
+
 ## 7. WHERE WE STOPPED
 
 **Runtime is live and the brain client is built.** Both models are downloaded.
