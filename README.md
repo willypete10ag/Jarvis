@@ -21,8 +21,9 @@ to you over Discord. Nothing binding happens without your approval.
 | Layer | State |
 |-------|-------|
 | Durable task memory + CLI | ✅ working |
-| Local model runtime (LM Studio) | ⏳ next |
-| Background worker + reminders | ⏳ |
+| Local model runtime (LM Studio) | ✅ working |
+| Brain client (LLM + tool-calls) | ✅ working |
+| Background worker + reminders | ⏳ next |
 | Discord bot (capture + notify) | ⏳ |
 | Voice (STT/TTS, CPU) | later |
 | Telephony (real calls) | deferred (not free) |
@@ -49,6 +50,12 @@ $j = ".\.venv\Scripts\jarvis.exe"
 & $j done 1
 & $j reminders          # what the background worker would fire right now
 & $j backup             # manual snapshot of the database
+
+# talk to the local model (the "brain")
+& $j brain --health                       # is the LLM server up? list models
+& $j brain "Summarize my open tasks" -v   # one-shot prompt (-v: reasoning + tok/s)
+& $j brain "Think this through..." --think # enable deeper reasoning mode
+& $j bench                                # benchmark the model: latency, tok/s, tool-use
 ```
 
 Time inputs accept `30m`, `2h`, `3d`, `1w`, `today 15:00`, `tomorrow`,

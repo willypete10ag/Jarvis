@@ -168,6 +168,61 @@ def cmd_backup(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_brain(args: argparse.Namespace) -> int:
+    from jarvis.brain import client as brain
+
+    if args.health:
+        ok, info = brain.health()
+        if not ok:
+            print(f"Brain unreachable: {info}", file=sys.stderr)
+            return 1
+        print(f"Brain is up at {config.LLM_BASE_URL}")
+        print(f"Configured model: {config.LLM_MODEL}")
+        print("Models served:")
+        for m in info:
+            print(f"  {m}")
+        return 0
+
+    if not args.prompt:
+        print("Error: provide a prompt, or use --health.", file=sys.stderr)
+        return 1
+
+    try:
+        res = brain.ask(
+            args.prompt,
+            system=args.system,
+            model=args.model,
+            thinking=args.think,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+    except brain.BrainError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(res.content)
+    if args.verbose:
+        if res.reasoning:
+            print("\n--- reasoning ---", file=sys.stderr)
+            print(res.reasoning, file=sys.stderr)
+        print(
+            f"\n[{res.model}] {res.completion_tokens} tok in "
+            f"{res.elapsed_s:.2f}s = {res.tokens_per_second:.1f} tok/s"
+            + ("  (truncated: hit max_tokens)" if res.truncated else ""),
+            file=sys.stderr,
+        )
+    return 0
+
+
+def cmd_bench(args: argparse.Namespace) -> int:
+    from jarvis.brain import bench
+
+    models = args.model or [config.LLM_MODEL]
+    reports = bench.run(models, max_tokens=args.max_tokens)
+    print(bench.format_report(reports))
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -229,6 +284,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("reminders", help="show reminders due now").set_defaults(func=cmd_reminders)
     sub.add_parser("backup", help="write a manual DB backup").set_defaults(func=cmd_backup)
+
+    pbr = sub.add_parser("brain", help="ask the local LLM a one-shot question (smoke test)")
+    pbr.add_argument("prompt", nargs="?", default="", help="the prompt to send")
+    pbr.add_argument("--system", help="optional system prompt")
+    pbr.add_argument("--model", help="model id (default: configured LLM_MODEL)")
+    pbr.add_argument("--think", action="store_true", help="enable Qwen3 thinking mode (slower, deeper)")
+    pbr.add_argument("--temperature", "-t", type=float, default=0.7)
+    pbr.add_argument("--max-tokens", type=int, default=1024, dest="max_tokens")
+    pbr.add_argument("--health", action="store_true", help="check the server and list models instead")
+    pbr.add_argument("--verbose", "-v", action="store_true", help="also show reasoning, tokens, tok/s")
+    pbr.set_defaults(func=cmd_brain)
+
+    pbe = sub.add_parser("bench", help="benchmark model(s): latency, tok/s, tool-use")
+    pbe.add_argument("--model", action="append", help="model id (repeatable to compare); default: configured")
+    pbe.add_argument("--max-tokens", type=int, default=300, dest="max_tokens")
+    pbe.set_defaults(func=cmd_bench)
 
     return p
 
