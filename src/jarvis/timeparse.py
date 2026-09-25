@@ -44,9 +44,18 @@ def parse_when(text: str, *, now: datetime | None = None) -> str:
         day_base, rest = now + timedelta(days=1), s[len("tomorrow"):]
 
     if day_base is not None:
-        hh, mm = _parse_hhmm(rest) if rest.strip() else (9, 0)  # default 9am
-        dt = day_base.replace(hour=hh, minute=mm, second=0, microsecond=0)
-        return _to_utc_iso(dt)
+        rest = rest.strip()
+        if not rest:
+            dt = day_base.replace(hour=9, minute=0, second=0, microsecond=0)  # default 9am
+            return _to_utc_iso(dt)
+        try:
+            hh, mm = _parse_hhmm(rest)
+            dt = day_base.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            return _to_utc_iso(dt)
+        except ValueError:
+            # e.g. "tomorrow morning" / "today afternoon" - a fuzzy time of day.
+            # Let the natural-language parser below handle the whole phrase.
+            pass
 
     # Bare time "15:00" -> today, or tomorrow if already past.
     if re.match(r"^\d{1,2}:\d{2}$", s):
