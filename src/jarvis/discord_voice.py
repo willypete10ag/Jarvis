@@ -133,14 +133,31 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> None:
             pass
 
 
-async def converse(vc: "voice_recv.VoiceRecvClient", *, greet: bool = True) -> None:
+def build_greeting(names: list[str]) -> str:
+    """A spoken hello that names whoever is already in the channel."""
+    if not names:
+        return "Hello, Jarvis here. How can I help?"
+    if len(names) == 1:
+        who = names[0]
+    elif len(names) == 2:
+        who = f"{names[0]} and {names[1]}"
+    else:
+        who = ", ".join(names[:-1]) + f", and {names[-1]}"
+    return f"Hello {who}. Jarvis here. What can I help you with?"
+
+
+async def converse(
+    vc: "voice_recv.VoiceRecvClient",
+    *,
+    greeting: str | None = "Hi, I'm here. What can I do for you?",
+) -> None:
     """Listen/think/speak loop for as long as Jarvis is in the channel."""
     collector = UtteranceCollector()
     vc.listen(voice_recv.BasicSink(collector.feed))
     log.info("listening in voice channel")
 
-    if greet:
-        await speak_in_vc(vc, "Hi, I'm here. What can I do for you?")
+    if greeting:
+        await speak_in_vc(vc, greeting)
 
     try:
         while vc.is_connected():

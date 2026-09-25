@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 
 from jarvis import config
@@ -89,10 +90,13 @@ def _build_client() -> "discord.Client":
                 f"Couldn't join **{channel.name}** ({e}). Do I have Connect + Speak permission there?"
             )
             return
+
+        names = [m.display_name for m in channel.members if not m.bot]
+        greeting = discord_voice.build_greeting(names)
         await message.channel.send(
             f"🎙️ Joined **{channel.name}**. Talk to me — say `leave` (here or out loud) when you're done."
         )
-        client.loop.create_task(discord_voice.converse(vc))
+        client.loop.create_task(discord_voice.converse(vc, greeting=greeting))
 
     async def _handle_leave(message: "discord.Message") -> None:
         vc = message.guild.voice_client
@@ -110,13 +114,26 @@ def _build_client() -> "discord.Client":
         text = message.content.strip()
         low = text.lower()
 
-        # Voice-channel commands come from a server text channel (where we can see
-        # your voice state). DMs are for task capture.
+        # In a server, Jarvis responds when you @mention him. "@Jarvis join" (while
+        # you're in a voice channel) makes him join; "@Jarvis leave" disconnects;
+        # any other @mention is handled as a task/chat and answered in the channel.
         if message.guild is not None:
-            if low in ("join", "join vc", "join voice", "come here"):
-                await _handle_join(message)
-            elif low in ("leave", "leave vc", "leave voice", "disconnect"):
+            mentioned = client.user in message.mentions
+            leave_intent = any(w in low for w in ("leave", "disconnect", "get out", "go away"))
+            join_intent = any(w in low for w in ("join", "come", "hop in", "jump in", "get in"))
+
+            if (mentioned and leave_intent) or low in ("leave", "disconnect"):
                 await _handle_leave(message)
+                return
+            if mentioned and join_intent:
+                await _handle_join(message)
+                return
+            if mentioned:
+                ask = re.sub(r"<@!?\d+>", "", text).strip()  # drop the mention itself
+                if ask:
+                    async with message.channel.typing():
+                        reply = await asyncio.to_thread(agent.handle, ask)
+                    await message.channel.send(reply[:1900] if reply else "Done.")
             return
 
         if not isinstance(message.channel, discord.DMChannel):
