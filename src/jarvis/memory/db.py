@@ -14,7 +14,7 @@ from typing import Iterator
 from jarvis import config
 
 # Schema version lets us migrate safely later without guessing the DB's shape.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -51,6 +51,34 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+
+-- Permanent memory: durable facts worth keeping (preferences, contacts,
+-- appointment outcomes/decisions, background context on tasks).
+CREATE TABLE IF NOT EXISTS memories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    category    TEXT    NOT NULL DEFAULT 'fact',  -- preference|contact|outcome|task_context|fact
+    subject     TEXT    NOT NULL DEFAULT '',      -- optional topic/key, e.g. 'dentist'
+    content     TEXT    NOT NULL,
+    task_id     INTEGER,                          -- optional link to a task
+    source      TEXT    NOT NULL DEFAULT 'agent',
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+);
+
+-- Working memory: the running conversation, scoped to a single day and wiped
+-- once the day rolls over, so follow-ups make sense without piling up forever.
+CREATE TABLE IF NOT EXISTS working_memory (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       TEXT    NOT NULL,
+    day      TEXT    NOT NULL,                    -- local 'YYYY-MM-DD' for the daily wipe
+    role     TEXT    NOT NULL,                    -- user|assistant
+    channel  TEXT    NOT NULL DEFAULT '',         -- discord|voice|voice_channel|cli
+    content  TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
+CREATE INDEX IF NOT EXISTS idx_memories_subject  ON memories(subject);
+CREATE INDEX IF NOT EXISTS idx_working_day        ON working_memory(day);
 """
 
 

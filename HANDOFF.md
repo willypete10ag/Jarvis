@@ -169,13 +169,26 @@ Since the runtime went live we shipped, in order, each tested + pushed:
 
 Live voice (desk + Discord VC) is the user's to test.
 
-**NEXT (in progress): long-term MEMORY layer** — currently only task ops persist;
-freeform facts/decisions and conversation context are NOT stored, and each
-message is handled independently (no memory of prior turns). Building: a facts
-store, booking-outcome records, and light conversation context. Clarifying Qs
-asked at end of that session.
+- **MEMORY layer** (`memory/recall.py`, schema v2) — two tiers agreed with the
+  user: **permanent** memory (`memories` table: preference|contact|outcome|
+  task_context|fact) and **working** memory (`working_memory`, conversation
+  context, auto-wiped daily). Saving policy: auto-save clear facts + tell the
+  user, save on explicit request, ASK when ambiguous. Agent injects known facts
+  into its prompt and includes recent turns for follow-ups. Tools: remember,
+  forget. CLI: `jarvis memory [list|add|forget|clear-chat]`. Verified: save,
+  recall, cross-turn context, auto-save of a preference, ambiguous not saved.
+  **Autonomy decision (act-vs-ask on booking choices) DEFERRED** — default
+  always-ask, revisit when the booking engine is built.
 
 All on GitHub (`willypete10ag/Jarvis`, private).
+
+## What's left toward the vision
+- **Booking engine** — a task Jarvis actively works and reports status on
+  (active → needs-confirmation → done/failed), pushing updates to Discord. The
+  task states already exist; the outcome memory category is ready. Autonomy
+  granularity to be decided here.
+- **Telephony** — real PSTN calls; deferred (cost). Discord VC is the free
+  rehearsal.
 
 ## 7. WHERE WE STOPPED
 

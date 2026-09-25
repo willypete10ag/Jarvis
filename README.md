@@ -28,7 +28,7 @@ to you over Discord. Nothing binding happens without your approval.
 | Natural-language task capture | ✅ working |
 | Voice (STT/TTS, CPU) | ✅ working (desk mic) |
 | Voice over Discord ("call" rehearsal) | ✅ working |
-| Long-term memory (facts, decisions, records) | ⏳ next |
+| Long-term memory (facts, decisions, records) | ✅ working |
 | Telephony (real calls) | deferred (not free) |
 
 ## The model
@@ -84,7 +84,24 @@ console; each reminder fires exactly once, and survives restarts.
   listening" to end).
 - **CLI** — `jarvis capture "remind me to call the dentist next Friday"`.
 
-All of these drive the same brain and the same durable task list.
+All of these drive the same brain, the same durable task list, and the same memory.
+
+## Memory
+
+Jarvis has two tiers of memory, both in the local database:
+
+- **Permanent** — durable facts it keeps: preferences, contacts, appointment
+  outcomes/decisions, and task context. It auto-saves clear facts (and tells
+  you), saves anything you explicitly ask it to, and asks first when unsure.
+- **Working** — the running conversation, so follow-ups make sense; wiped daily
+  so it never piles up.
+
+```powershell
+& $j memory                      # list what Jarvis remembers
+& $j memory add "gate code is 4821" --category fact --subject "home"
+& $j memory forget dentist       # forget by text (or by id)
+& $j memory clear-chat           # wipe today's conversation memory now
+```
 
 Time inputs accept `30m`, `2h`, `3d`, `1w`, `today 15:00`, `tomorrow`,
 `2026-10-01 14:30`.

@@ -19,7 +19,7 @@ import sys
 from datetime import datetime, timezone
 
 from jarvis import config
-from jarvis.memory import db, mirror
+from jarvis.memory import db, mirror, recall
 from jarvis.memory import tasks as T
 from jarvis.timeparse import parse_when
 
@@ -248,6 +248,40 @@ def cmd_voice(args: argparse.Namespace) -> int:
     return session.run()
 
 
+def cmd_memory(args: argparse.Namespace) -> int:
+    if args.action == "list":
+        mems = recall.list_memories(category=args.category or None)
+        if not mems:
+            print("No memories yet.")
+            return 0
+        for m in mems:
+            subj = f"{m.subject}: " if m.subject else ""
+            print(f"#{m.id} [{m.category}] {subj}{m.content}")
+        print(f"\n{len(mems)} memor{'y' if len(mems) == 1 else 'ies'}.")
+        return 0
+    if args.action == "add":
+        if not args.text:
+            print("Provide text to remember.", file=sys.stderr)
+            return 1
+        m = recall.remember(args.text, category=args.category or "fact", subject=args.subject, source="cli")
+        print(f"Remembered #{m.id}.")
+        return 0
+    if args.action == "forget":
+        if not args.text:
+            print("Provide an id or search text to forget.", file=sys.stderr)
+            return 1
+        if args.text.isdigit():
+            print("Forgotten." if recall.forget(int(args.text)) else "No memory with that id.")
+        else:
+            n = recall.forget_matching(args.text)
+            print(f"Forgot {n} item(s) matching '{args.text}'.")
+        return 0
+    if args.action == "clear-chat":
+        print(f"Cleared {recall.wipe_working()} working-memory turn(s).")
+        return 0
+    return 0
+
+
 def cmd_autostart(args: argparse.Namespace) -> int:
     from jarvis import autostart
 
@@ -360,6 +394,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("discord", help="run the Discord bot (DM capture + phone reminders)").set_defaults(func=cmd_discord)
     sub.add_parser("voice", help="start a voice session: talk to Jarvis with your mic").set_defaults(func=cmd_voice)
+
+    pmem = sub.add_parser("memory", help="view or edit Jarvis's long-term memory")
+    pmem.add_argument("action", nargs="?", default="list",
+                      choices=("list", "add", "forget", "clear-chat"),
+                      help="list (default), add, forget <id|text>, or clear-chat")
+    pmem.add_argument("text", nargs="?", default="", help="text to add, or id/text to forget")
+    pmem.add_argument("--category", choices=recall.CATEGORIES, help="filter (list) or set (add)")
+    pmem.add_argument("--subject", default="", help="topic/key when adding")
+    pmem.set_defaults(func=cmd_memory)
 
     return p
 

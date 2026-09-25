@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from jarvis.brain import client as brain
+from jarvis.memory import recall
 from jarvis.memory import tasks as T
 from jarvis.timeparse import parse_when
 
@@ -87,21 +88,68 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "remember",
+            "description": (
+                "Save a durable fact to long-term memory: a preference, a contact, "
+                "an appointment outcome/decision, or background context. Use it when "
+                "the user shares something worth keeping, or asks you to remember. "
+                "Do NOT use it for something ambiguous - ask the user first instead."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "content": {"type": "string", "description": "The fact, phrased clearly and standalone"},
+                    "category": {"type": "string", "enum": list(recall.CATEGORIES)},
+                    "subject": {"type": "string", "description": "Short topic/key, e.g. 'dentist' or 'home address'"},
+                },
+                "required": ["content"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "forget",
+            "description": "Remove matching facts from long-term memory when the user asks you to forget something.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Text describing what to forget"},
+                },
+                "required": ["query"],
+            },
+        },
+    },
 ]
 
 
 def _system_prompt() -> str:
     now = datetime.now().astimezone()
-    return (
+    parts = [
         "You are Jarvis, a personal task assistant running on the user's PC. "
         "Read the user's message and call the single most appropriate tool. "
-        f"Right now it is {now:%A, %Y-%m-%d %H:%M} local time. "
-        "For 'due' and 'remind', copy the user's own time wording verbatim "
+        f"Right now it is {now:%A, %Y-%m-%d %H:%M} local time.",
+        "TIMES: for 'due' and 'remind', copy the user's own time wording verbatim "
         "(e.g. 'next Friday', 'in 3 days', 'tomorrow at 2pm', '2026-10-01 14:30'). "
-        "Do NOT convert or do date math yourself - the system resolves the phrase "
-        "reliably. If the user is only chatting and there is nothing to do, reply "
-        "briefly without calling a tool."
+        "Do NOT convert or do date math yourself - the system resolves it reliably.",
+        "MEMORY: save durable facts with the remember tool - clear preferences, "
+        "contacts, appointment outcomes, and task context - and always save what the "
+        "user explicitly asks you to remember. If it is genuinely ambiguous whether "
+        "something is worth saving, ASK the user first and save it only after they "
+        "confirm. Use what you already know (below) to answer, and don't ask for "
+        "details you already have.",
+    ]
+    known = recall.recall_block()
+    if known:
+        parts.append("WHAT YOU ALREADY KNOW:\n" + known)
+    parts.append(
+        "If the user is only chatting and there is nothing to do, reply briefly "
+        "without calling a tool."
     )
+    return "\n\n".join(parts)
 
 
 def _fmt(ts: str | None) -> str:
@@ -189,11 +237,36 @@ def _h_add_note(args: dict[str, Any]) -> str:
     return f"📝 Noted on **#{task_id}**."
 
 
+def _h_remember(args: dict[str, Any]) -> str:
+    content = str(args.get("content", "")).strip()
+    if not content:
+        return "I didn't catch what to remember."
+    category = str(args.get("category", "fact")).lower()
+    subject = str(args.get("subject", "")).strip()
+    m = recall.remember(content, category=category, subject=subject, source="agent")
+    about = f" about {m.subject}" if m.subject else ""
+    return f"🧠 Got it — I'll remember that{about}."
+
+
+def _h_forget(args: dict[str, Any]) -> str:
+    query = str(args.get("query", "")).strip()
+    if not query:
+        return "What should I forget?"
+    n = recall.forget_matching(query)
+    return (
+        f"🧠 Forgotten {n} thing(s) about '{query}'."
+        if n
+        else f"I didn't have anything saved about '{query}'."
+    )
+
+
 _HANDLERS = {
     "add_task": _h_add_task,
     "list_tasks": _h_list_tasks,
     "complete_task": _h_complete_task,
     "add_note": _h_add_note,
+    "remember": _h_remember,
+    "forget": _h_forget,
 }
 
 
@@ -259,34 +332,35 @@ def _natural_spoken(user_message: str, confirmations: list[str]) -> str:
     return (res.content or summary).strip()
 
 
-def handle(message: str, *, spoken: bool = False) -> str:
+def handle(message: str, *, spoken: bool = False, channel: str = "") -> str:
     """Interpret one user message, act on it, and return a reply string.
 
+    Uses working memory so follow-ups make sense ("move that to Friday"), and
+    permanent memory (injected in the system prompt) so Jarvis knows your facts.
     With ``spoken=True`` the reply is phrased for the ear (natural sentence, no
     markdown/IDs); otherwise it's the structured text reply used in Discord/CLI.
     """
     message = (message or "").strip()
     if not message:
         return "Say something and I'll help."
+
+    # Record the user's turn, then pull recent context (which now includes it).
+    recall.add_turn("user", message, channel=channel)
+    history = recall.recent_turns(limit=8)
+    messages = [{"role": "system", "content": _system_prompt()}, *history]
+
     try:
-        res = brain.chat(
-            [
-                {"role": "system", "content": _system_prompt()},
-                {"role": "user", "content": message},
-            ],
-            tools=TOOLS,
-            max_tokens=512,
-            temperature=0,
-        )
+        res = brain.chat(messages, tools=TOOLS, max_tokens=512, temperature=0)
     except brain.BrainError as e:
         return f"⚠️ My brain is offline right now ({e})."
 
     if not res.tool_calls:
         reply = res.content or "Okay."
-        return _strip_markup(reply) if spoken else reply
+        out = _strip_markup(reply) if spoken else reply
+    else:
+        confirmations = [_dispatch(tc) for tc in res.tool_calls]
+        deterministic = "\n".join(r for r in confirmations if r) or "Done."
+        out = _natural_spoken(message, confirmations) if spoken else deterministic
 
-    confirmations = [_dispatch(tc) for tc in res.tool_calls]
-    deterministic = "\n".join(r for r in confirmations if r) or "Done."
-    if not spoken:
-        return deterministic
-    return _natural_spoken(message, confirmations)
+    recall.add_turn("assistant", out, channel=channel)
+    return out
