@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import logging
 import queue
+import random
 import re
+import threading
 
 import numpy as np
 
@@ -32,6 +34,17 @@ _STOP_PHRASES = {
     "stop", "stop listening", "goodbye", "good bye", "bye",
     "exit", "quit", "that's all", "thats all", "shut down", "go away",
 }
+
+# Spoken while Jarvis works, to cover the (deliberate) processing time. These are
+# pre-rendered to audio once at startup so they play back instantly.
+_FILLER_PHRASES = [
+    "One moment.",
+    "Let me check on that.",
+    "On it.",
+    "Hold on a sec.",
+    "Checking on that.",
+    "Give me a second.",
+]
 
 
 def _speakable(text: str) -> str:
@@ -107,6 +120,46 @@ def record_utterance(
     return np.concatenate(collected).astype(np.float32)
 
 
+def _prerender_fillers() -> list[tuple[np.ndarray, int]]:
+    """Synthesize the filler phrases once so they can be played with no delay."""
+    rendered: list[tuple[np.ndarray, int]] = []
+    for phrase in _FILLER_PHRASES:
+        try:
+            rendered.append(tts.synthesize(phrase))
+        except Exception:
+            log.warning("could not pre-render filler %r", phrase)
+    return rendered
+
+
+def _respond(text: str, fillers: list[tuple[np.ndarray, int]]) -> None:
+    """Answer the user: think in the background while a filler plays, then speak.
+
+    Running the agent (which may make two LLM calls for a quality reply) in a
+    thread lets the filler audio overlap the processing, so the pause never feels
+    dead - Jarvis says "one moment" and is already working on the answer.
+    """
+    result: dict[str, str] = {}
+
+    def _work() -> None:
+        try:
+            result["reply"] = agent.handle(text, spoken=True)
+        except Exception as e:  # keep the session alive on any failure
+            log.exception("agent failed")
+            result["reply"] = "Sorry, I ran into a problem with that."
+
+    worker = threading.Thread(target=_work, daemon=True)
+    worker.start()
+
+    if fillers:
+        samples, sr = random.choice(fillers)
+        tts.play(samples, sr)  # plays while the agent thinks
+
+    worker.join()
+    reply = result.get("reply", "").strip() or "Done."
+    print(f"  Jarvis: {reply}\n")
+    tts.speak(_speakable(reply))
+
+
 def run() -> int:
     """Run the interactive voice session. Blocks until stopped."""
     logging.basicConfig(
@@ -123,6 +176,7 @@ def run() -> int:
 
     print("Warming up voice models (first run may take a bit)...")
     stt.warm_up()
+    fillers = _prerender_fillers()  # also warms up the TTS model
 
     print("\n🎙️  Voice session started. Speak after 'Listening...'.")
     print("    Say \"stop listening\" or press Ctrl+C to end.\n")
@@ -145,9 +199,7 @@ def run() -> int:
                 tts.speak("Goodbye.")
                 break
 
-            reply = agent.handle(text)
-            print(f"  Jarvis: {reply}\n")
-            tts.speak(_speakable(reply))
+            _respond(text, fillers)
     except KeyboardInterrupt:
         print("\nVoice session ended.")
 

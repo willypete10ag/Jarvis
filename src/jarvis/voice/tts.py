@@ -52,12 +52,10 @@ def synthesize(text: str) -> tuple[np.ndarray, int]:
     return samples, sample_rate
 
 
-def speak(text: str) -> None:
-    """Synthesize and play ``text`` through the default output device (blocking)."""
-    text = (text or "").strip()
-    if not text:
+def play(samples: np.ndarray, sample_rate: int) -> None:
+    """Play already-synthesized audio through the default output (blocking)."""
+    if samples is None or len(samples) == 0:
         return
-    samples, sample_rate = synthesize(text)
     try:
         import sounddevice as sd
 
@@ -65,3 +63,12 @@ def speak(text: str) -> None:
         sd.wait()
     except Exception as e:  # no audio device, etc. - don't crash the session
         log.warning("could not play audio: %s", e)
+
+
+def speak(text: str) -> None:
+    """Synthesize and play ``text`` through the default output device (blocking)."""
+    text = (text or "").strip()
+    if not text:
+        return
+    samples, sample_rate = synthesize(text)
+    play(samples, sample_rate)

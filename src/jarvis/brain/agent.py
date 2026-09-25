@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -217,8 +218,53 @@ def _dispatch(tool_call: dict[str, Any]) -> str:
         return f"⚠️ Something went wrong doing that ({e})."
 
 
-def handle(message: str) -> str:
-    """Interpret one user message, act on it, and return a reply string."""
+def _strip_markup(text: str) -> str:
+    """Remove markdown/emoji/IDs so text reads cleanly aloud."""
+    text = text.replace("**", "").replace("*", "")
+    text = re.sub(r"#(\d+)", r"\1", text)
+    for junk in ("✅", "🔴", "⚪", "📝", "🔔", "✨", "·", "_"):
+        text = text.replace(junk, " ")
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _natural_spoken(user_message: str, confirmations: list[str]) -> str:
+    """Phrase what was just done as one natural, spoken sentence (a 2nd LLM call).
+
+    Falls back to the plain confirmation if the model is unavailable.
+    """
+    summary = _strip_markup("; ".join(c for c in confirmations if c)) or "Done."
+    try:
+        res = brain.chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Jarvis, a concise, warm voice assistant; your reply "
+                        "will be spoken aloud. If the result is a list of tasks, read "
+                        "them out briefly and naturally (e.g. 'You have three: X, Y, "
+                        "and Z'). Otherwise confirm what was done in one short sentence. "
+                        "Never use markdown, emoji, or ID numbers - just natural speech."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": f'I asked: "{user_message}". Result: {summary}. Reply naturally.',
+                },
+            ],
+            max_tokens=220,
+            temperature=0.4,
+        )
+    except brain.BrainError:
+        return summary
+    return (res.content or summary).strip()
+
+
+def handle(message: str, *, spoken: bool = False) -> str:
+    """Interpret one user message, act on it, and return a reply string.
+
+    With ``spoken=True`` the reply is phrased for the ear (natural sentence, no
+    markdown/IDs); otherwise it's the structured text reply used in Discord/CLI.
+    """
     message = (message or "").strip()
     if not message:
         return "Say something and I'll help."
@@ -236,7 +282,11 @@ def handle(message: str) -> str:
         return f"⚠️ My brain is offline right now ({e})."
 
     if not res.tool_calls:
-        return res.content or "Okay."
+        reply = res.content or "Okay."
+        return _strip_markup(reply) if spoken else reply
 
-    replies = [_dispatch(tc) for tc in res.tool_calls]
-    return "\n".join(r for r in replies if r) or "Done."
+    confirmations = [_dispatch(tc) for tc in res.tool_calls]
+    deterministic = "\n".join(r for r in confirmations if r) or "Done."
+    if not spoken:
+        return deterministic
+    return _natural_spoken(message, confirmations)
