@@ -51,6 +51,7 @@ def _build_client() -> "discord.Client":
     intents = discord.Intents.default()
     intents.message_content = True  # to read DM text (privileged; enabled in portal)
     intents.dm_messages = True
+    intents.voice_states = True     # to see which voice channel you're in
 
     client = discord.Client(intents=intents)
 
@@ -66,22 +67,67 @@ def _build_client() -> "discord.Client":
         if not reminder_loop.is_running():
             reminder_loop.start()
 
+    async def _handle_join(message: "discord.Message") -> None:
+        from jarvis import discord_voice
+
+        voice_state = getattr(message.author, "voice", None)
+        if voice_state is None or voice_state.channel is None:
+            await message.channel.send("You're not in a voice channel — hop in one, then say `join`.")
+            return
+        if message.guild.voice_client is not None:
+            await message.channel.send("I'm already in a voice channel. Say `leave` first.")
+            return
+        channel = voice_state.channel
+        try:
+            vc = await channel.connect(cls=discord_voice.voice_recv.VoiceRecvClient)
+        except discord.errors.ClientException as e:
+            await message.channel.send(f"Couldn't join: {e}")
+            return
+        except Exception as e:  # missing Connect/Speak permission, etc.
+            log.exception("voice join failed")
+            await message.channel.send(
+                f"Couldn't join **{channel.name}** ({e}). Do I have Connect + Speak permission there?"
+            )
+            return
+        await message.channel.send(
+            f"🎙️ Joined **{channel.name}**. Talk to me — say `leave` (here or out loud) when you're done."
+        )
+        client.loop.create_task(discord_voice.converse(vc))
+
+    async def _handle_leave(message: "discord.Message") -> None:
+        vc = message.guild.voice_client
+        if vc is None:
+            await message.channel.send("I'm not in a voice channel.")
+            return
+        await vc.disconnect()
+        await message.channel.send("👋 Left the voice channel.")
+
     @client.event
     async def on_message(message: "discord.Message") -> None:
         if message.author == client.user:
             return
-        # Only act on direct messages for now.
+
+        text = message.content.strip()
+        low = text.lower()
+
+        # Voice-channel commands come from a server text channel (where we can see
+        # your voice state). DMs are for task capture.
+        if message.guild is not None:
+            if low in ("join", "join vc", "join voice", "come here"):
+                await _handle_join(message)
+            elif low in ("leave", "leave vc", "leave voice", "disconnect"):
+                await _handle_leave(message)
+            return
+
         if not isinstance(message.channel, discord.DMChannel):
+            return
+        if not text:
             return
 
         # First person to DM becomes the owner, unless one is pinned in config.
         if not config.DISCORD_OWNER_ID.strip() and db.get_meta(_OWNER_META_KEY) is None:
             db.set_meta(_OWNER_META_KEY, str(message.author.id))
             log.info("owner set to %s (%s)", message.author, message.author.id)
-
-        text = message.content.strip()
-        if not text:
-            return
 
         # Task work is blocking (SQLite + a local LLM call); keep the event loop
         # responsive by running it in a thread.

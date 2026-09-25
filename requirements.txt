@@ -10,6 +10,9 @@
 
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
 discord.py>=2.3
+PyNaCl>=1.5                 # voice encryption (required to join voice channels)
+discord-ext-voice-recv>=0.5 # receive/decode other users' voice (not in core discord.py)
+# Voice-channel playback also needs ffmpeg on PATH (system install, not pip).
 
 # --- Natural-language dates ("next Friday", "in 3 weeks") -> resolved in code,
 #     not by the model, which is unreliable at weekday math. ---
