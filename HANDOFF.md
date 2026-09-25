@@ -189,6 +189,11 @@ All on GitHub (`willypete10ag/Jarvis`, private).
   granularity to be decided here.
 - **Telephony** — real PSTN calls; deferred (cost). Discord VC is the free
   rehearsal.
+- **Voice echo cancellation (AEC)** — so Jarvis doesn't hear his own TTS through
+  the mic without headphones. Partial mitigation exists (VC loop ignores audio
+  while playing; Discord's own Echo Cancellation can be toggled on). Real AEC
+  (WebRTC/speexdsp, post-playback cooldown) is future work; desk-mic path has
+  none yet. Requested by user 2026-09-25.
 
 ## 7. WHERE WE STOPPED
 
