@@ -1,0 +1,19 @@
+# Jarvis dependencies.
+#
+# The core task/memory layer (what runs today) needs NOTHING here - it is pure
+# Python standard library, so your task record can never break from a bad
+# dependency. The packages below get installed as we build each later layer.
+
+# --- Brain: talk to the local model over its OpenAI-compatible API ---
+# (LM Studio @ :1234/v1  or  Ollama @ :11434/v1)
+# openai>=1.40
+
+# --- Interface: Discord bot (capture tasks + reminders + notifications) ---
+# discord.py>=2.4
+
+# --- Config / secrets ---
+# python-dotenv>=1.0
+
+# --- Voice (later): speech-to-text + text-to-speech, run on CPU ---
+# faster-whisper>=1.0
+# piper-tts>=1.2

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment / secrets
+.env
+*.env
+secrets.*
+
+# Jarvis runtime data (keep the structure, ignore the contents)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/backups/*
+data/notes/*
+logs/*
+
+# Keep the folders themselves
+!data/backups/.gitkeep
+!data/notes/.gitkeep
+!logs/.gitkeep
+
+# Editor / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

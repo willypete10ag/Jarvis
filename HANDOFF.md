@@ -1,0 +1,199 @@
+# Jarvis — Session Handoff
+
+> **Purpose of this file:** let a fresh Claude session (or the user) resume this
+> project with full context. Read this top-to-bottom first. Last updated:
+> **2026-09-24**.
+
+---
+
+## 1. What we're building
+
+A **local, always-on, free "Jarvis"** background agent that runs on the user's
+own PC. The user hands it tasks; it keeps a **permanent record**, works them in
+the background, **reminds** the user so nothing is forgotten, and reports over
+**Discord** (so notifications reach the user's phone). **Approve-before-acting**:
+nothing irreversible happens without the user's sign-off.
+
+The user's headline ambition is eventually having Jarvis **make phone calls to
+book appointments** (e.g. a dentist). See the important constraint on that in §4.
+
+---
+
+## 2. Hardware (the constraint that drives every decision)
+
+| Component | Spec | Notes |
+|-----------|------|-------|
+| GPU | **NVIDIA RTX 4070 Ti, 12 GB VRAM** | ~10 GB *free* in practice; baseline ~1.6–2 GB used by desktop/Chrome/Discord/**Wallpaper Engine** (a persistent GPU draw that can be paused to reclaim VRAM). |
+| CPU | **i7-13700KF**, 16C/24T | Strong — comfortably runs voice models (STT/TTS) on CPU. |
+| RAM | **32 GB** (~18 GB free) | Headroom for CPU offload + orchestration. |
+| OS | **Windows 10 Pro** | PowerShell primary shell. Task Scheduler = "run at logon". |
+
+**VRAM planning budget: ~9–10 GB**, because the desktop baseline fluctuates as
+the user actually uses the machine. Plan for "fits with room to spare," not
+"fits exactly."
+
+---
+
+## 3. Key decisions already made (don't re-litigate these)
+
+- **Model runtime: LM Studio** (primary), the way the user's friend "Robinson"
+  (aka Alex/AlexGeddylfson) described it — LM Studio runs the model + serves an
+  OpenAI-compatible API; Jarvis and any other program talk to that API.
+  **Ollama is also installed** as a spare (scripted pulls / fallback). Both
+  expose an OpenAI-compatible endpoint, so the runtime is swappable:
+  - LM Studio → `http://localhost:1234/v1`
+  - Ollama → `http://localhost:11434/v1`
+- **Model: Qwen3-14B @ Q4_K_M** (fully GPU-resident, ~9 GB weights), with the
+  **KV cache quantized to q8** to get a bigger context window in the same VRAM.
+  - **Fallback: Qwen3-8B @ Q4_K_M** if we need headroom (e.g. GPU-side voice).
+  - Rationale settled with the user: 27B/32B/30B-class models **do not fit**
+    (weights alone ~17 GB+; KV-cache tuning can't save a model whose *weights*
+    overflow). 14B fits AND leaves room for a usable context; 8B is the safe
+    fallback. Decision loop agreed with the user:
+    **14B → if context tight, quantize KV → still tight? → 8B → feels dumb? → back to 14B.**
+  - Why not Gemma (the friend floated "27b"/"9b" = Gemma family): Gemma is
+    weaker/finicky at structured tool-calling; Jarvis is an agent, so tool-call
+    reliability > prose. Qwen3 / gpt-oss are stronger here.
+- **Optional "heavy brain": Qwen3-30B-A3B** (MoE, ~3B active) for *background-only*
+  deep reasoning where slower-but-smarter is fine (it spills ~8 GB to RAM, so
+  NOT for real-time voice). Loaded on demand, not during calls.
+- **Voice models run on CPU** (whisper STT + Piper/Kokoro TTS) so the GPU stays
+  dedicated to the LLM. Note: whisper/Piper *can* run on GPU but that risks OOM
+  when stacked with the LLM — the friend confirmed this from experience.
+- **Autonomy: approve-before-acting** for anything irreversible.
+
+---
+
+## 4. Phone calls — the deferred piece (IMPORTANT)
+
+The user requires the project stay **100% free**. That takes **real phone calls
+to arbitrary businesses OFF the table for now** — there's no free/sustainable way
+to reach the PSTN (telephony providers cost ~cents/min; trial credits only call
+*pre-verified* numbers). This is **deferred, not cancelled** — revisit only if
+the user later accepts a small per-minute cost.
+
+**Free substitute for testing the voice pipeline** (agreed as the path):
+1. Desk mic + speakers — talk to Jarvis locally.
+2. **Discord voice channel** — Jarvis joins a voice channel; user talks to it
+   from the Discord phone app. Feels like a "call," costs nothing. This is where
+   the user's "call my cell and book a fake appointment" rehearsal lives.
+3. *(deferred, paid)* real PSTN call.
+
+---
+
+## 5. What's BUILT and WORKING ✅
+
+Project root: **`C:\Coding_Projects\jarvis`** (git initialized; venv at `.venv`).
+
+**Durable task memory + CLI** — pure Python **standard library** (no deps, so it
+can't break from a bad package). Tested end-to-end. Three durability guarantees:
+1. **SQLite (WAL mode)** — crash/power-loss resilient → `data/jarvis.db`
+2. **Append-only event log** (`task_events` table) — every change recorded
+   forever, never overwritten.
+3. **Markdown mirror** (`data/notes/tasks.md`, auto-written on every change,
+   readable with no app) + **rolling DB backups** (`data/backups/`, keep 30).
+
+**CLI commands** (via `.venv\Scripts\jarvis.exe` or `python -m jarvis`):
+`init, add, list, show, note, next, status, done, cancel, remind, due,
+reminders, backup`. Human time parsing: `30m`, `2h`, `3d`, `1w`,
+`today 15:00`, `tomorrow`, `2026-10-01 14:30`.
+
+Two real tasks already seeded: **#1 Book dentist appointment**, **#2 Update Plex
+server**.
+
+### File layout
+```
+src/jarvis/
+  config.py          paths + settings (single source of truth; JARVIS_DB env override)
+  timeparse.py       human time strings -> UTC ISO
+  cli.py             the task CLI (argparse subcommands)
+  __main__.py        enables `python -m jarvis`
+  memory/
+    db.py            SQLite connection + schema (WAL, schema_version=1)
+    tasks.py         Task dataclass + domain logic + audit logging
+    mirror.py        markdown mirror + DB backups
+data/
+  jarvis.db          durable store (git-ignored)
+  notes/tasks.md     human-readable mirror
+  backups/           timestamped .db snapshots
+pyproject.toml       src-layout, editable install, console_script `jarvis`
+requirements.txt     future deps (commented; core needs none)
+README.md            project overview
+```
+
+### Quick verify (sanity check on resume)
+```powershell
+$j = "C:\Coding_Projects\jarvis\.venv\Scripts\jarvis.exe"
+& $j list
+& $j show 1
+```
+
+---
+
+## 6. What's INSTALLED but not yet configured
+
+- **Ollama** — installed (user signed into its cloud catalog; harmless). Spare.
+- **LM Studio v0.4.25** — installed via winget (`ElementLabs.LMStudio`).
+  **NOT yet launched/configured.** The `lms` CLI bootstraps on first app launch
+  (`%USERPROFILE%\.lmstudio\bin\lms.exe`).
+- Also present on machine: `python 3.13`, `git`, `node`, `ffmpeg`, `winget`.
+
+---
+
+## 7. WHERE WE STOPPED
+
+The user started downloading **Qwen3-14B (Q4_K_M)** in LM Studio, but the
+**download was too slow to finish tonight**. We paused here. Nothing is broken —
+the whole memory core works; we're just waiting on the model file.
+
+---
+
+## 8. NEXT STEPS (in order)
+
+1. **User finishes the model download in LM Studio**, then loads Qwen3-14B with:
+   - GPU Offload: **max**
+   - Context Length: **16384** (start here)
+   - Flash Attention: **ON**
+   - K Cache Quant: **Q8_0**, V Cache Quant: **Q8_0**
+   - Then **Developer tab → Start Server** (`localhost:1234/v1`).
+   - *(Also grab Qwen3-8B Q4_K_M for the benchmark comparison.)*
+2. **User reports back:** `nvidia-smi --query-gpu=memory.used,memory.free --format=csv,noheader`
+   after load, and "server's up."
+3. **Claude builds the "brain" client** — a small module talking to the
+   OpenAI-compatible endpoint (make base URL configurable in `config.py`,
+   default `http://localhost:1234/v1`). Then **benchmark 14B vs 8B** on the real
+   hardware (tok/s + VRAM + a tool-use prompt) to finalize the model.
+4. **Background worker** — a loop (launched by Windows Task Scheduler at logon)
+   that ticks on a timer, fires due reminders (`tasks.due_reminders()` →
+   `mark_reminded()`), and works active tasks. Daily auto-backup via
+   `mirror.backup_db()`.
+5. **Discord bot** (`discord.py`) — capture tasks from DMs, send reminders +
+   progress + approval prompts. **User will need to create a Discord bot token**
+   (Claude will walk them through the Developer Portal steps). Store the token in
+   a `.env` (already git-ignored) — never commit it.
+6. **Voice (later):** whisper (STT) + Piper/Kokoro (TTS) on CPU → then Discord
+   voice channel for the "call" rehearsal.
+7. **Telephony:** deferred (see §4).
+
+---
+
+## 9. Open items / loose ends
+
+- **Git: initial commit NOT yet made.** All files are staged (`git add -A` was
+  run). The user was asked whether to commit and hadn't answered when we paused.
+  Commit only when the user asks. Attribution footer to use when committing:
+  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>`.
+- **Prebuilding the brain client** while waiting was offered; user opted to defer.
+- `.env` for secrets (Discord token, etc.) is git-ignored but not yet created.
+
+---
+
+## 10. Tone / working-relationship notes
+
+- User is technically capable, hands-on, and interrogates recommendations
+  (good — explain the *why*, back claims with numbers, offer to measure rather
+  than assert). The friend "Robinson" is a real, knowledgeable collaborator whose
+  advice largely aligns with the plan; don't dismiss him.
+- The user briefly asked for a "Joker" speaking style, then dropped it — **speak
+  normally** unless they ask again.
+- User's email (for attribution/identity only): willorderapizza@gmail.com.

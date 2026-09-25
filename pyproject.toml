@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jarvis"
+version = "0.0.1"
+description = "A local, always-on background task agent running on local LLMs."
+requires-python = ">=3.11"
+# Core task/memory layer intentionally uses only the standard library.
+# Feature dependencies get added as we build each layer (see requirements.txt).
+dependencies = []
+
+[project.scripts]
+jarvis = "jarvis.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
