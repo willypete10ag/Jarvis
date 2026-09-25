@@ -23,8 +23,8 @@ to you over Discord. Nothing binding happens without your approval.
 | Durable task memory + CLI | ✅ working |
 | Local model runtime (LM Studio) | ✅ working |
 | Brain client (LLM + tool-calls) | ✅ working |
-| Background worker + reminders | ⏳ next |
-| Discord bot (capture + notify) | ⏳ |
+| Background worker + reminders | ✅ working |
+| Discord bot (capture + notify) | ⏳ next |
 | Voice (STT/TTS, CPU) | later |
 | Telephony (real calls) | deferred (not free) |
 
@@ -56,7 +56,20 @@ $j = ".\.venv\Scripts\jarvis.exe"
 & $j brain "Summarize my open tasks" -v   # one-shot prompt (-v: reasoning + tok/s)
 & $j brain "Think this through..." --think # enable deeper reasoning mode
 & $j bench                                # benchmark the model: latency, tok/s, tool-use
+
+# the always-on background worker (fires reminders + daily backups)
+& $j worker --once        # run a single tick now (fires anything due) - great for testing
+& $j worker               # loop forever, ticking every 60s (Ctrl+C to stop)
+& $j worker --interval 30 # tick faster
+& $j autostart install    # run the worker automatically at every logon (Windows)
+& $j autostart start      # start it now without logging out
+& $j autostart status     # is it installed / running?
+& $j autostart remove     # stop launching it at logon
 ```
+
+Reminders fire as a **native Windows toast** (a pop-up in the corner) and to the
+console; each reminder fires exactly once, and survives restarts. Discord
+delivery (so reminders reach your phone) is the next layer.
 
 Time inputs accept `30m`, `2h`, `3d`, `1w`, `today 15:00`, `tomorrow`,
 `2026-10-01 14:30`.

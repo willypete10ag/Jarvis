@@ -223,6 +223,30 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_worker(args: argparse.Namespace) -> int:
+    from jarvis import worker
+
+    return worker.run(interval=args.interval, once=args.once)
+
+
+def cmd_autostart(args: argparse.Namespace) -> int:
+    from jarvis import autostart
+
+    actions = {
+        "install": autostart.install,
+        "remove": autostart.remove,
+        "status": autostart.status,
+        "start": autostart.start_now,
+    }
+    ok, msg = actions[args.action]()
+    if msg:
+        print(msg)
+    if args.action == "install" and ok:
+        print(f"\nJarvis will now start at logon (task '{autostart.TASK_NAME}').")
+        print("Start it right now without logging out:  jarvis autostart start")
+    return 0 if ok else 1
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -300,6 +324,16 @@ def build_parser() -> argparse.ArgumentParser:
     pbe.add_argument("--model", action="append", help="model id (repeatable to compare); default: configured")
     pbe.add_argument("--max-tokens", type=int, default=300, dest="max_tokens")
     pbe.set_defaults(func=cmd_bench)
+
+    pw = sub.add_parser("worker", help="run the background worker (reminders + daily backup)")
+    pw.add_argument("--interval", type=float, default=60.0, help="seconds between ticks (default 60)")
+    pw.add_argument("--once", action="store_true", help="run a single tick and exit (for testing)")
+    pw.set_defaults(func=cmd_worker)
+
+    pas = sub.add_parser("autostart", help="run the worker automatically at logon (Windows)")
+    pas.add_argument("action", choices=("install", "remove", "status", "start"),
+                     help="install/remove the logon task, check status, or start it now")
+    pas.set_defaults(func=cmd_autostart)
 
     return p
 
