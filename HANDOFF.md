@@ -194,6 +194,15 @@ All on GitHub (`willypete10ag/Jarvis`, private).
   while playing; Discord's own Echo Cancellation can be toggled on). Real AEC
   (WebRTC/speexdsp, post-playback cooldown) is future work; desk-mic path has
   none yet. Requested by user 2026-09-25.
+- **Activation / lifecycle** (user 2026-09-25) — wants resource-aware runtime:
+  on when there are active tasks, checks in via Discord, goes idle when done;
+  ideally woken by a Discord message. Recommended design: keep the lightweight
+  **bot always on** (Task Scheduler at logon → always reachable), **JIT-load the
+  LLM on demand and unload on idle** (frees VRAM), and have the **worker sleep**
+  when idle rather than kill the process. Self-kill is possible but makes him
+  unreachable. A second always-on "waker" bot is only needed for zero idle
+  footprint. Prefer idle-over-terminate. Details in the activation-lifecycle
+  memory note.
 
 ## 7. WHERE WE STOPPED
 
