@@ -6,13 +6,13 @@
 
 # --- Brain: talk to the local model over its OpenAI-compatible API ---
 # (LM Studio @ :1234/v1  or  Ollama @ :11434/v1)
-# openai>=1.40
+# The brain client uses only the stdlib (urllib), so no package is required here.
 
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
-# discord.py>=2.4
+discord.py>=2.3
 
 # --- Config / secrets ---
-# python-dotenv>=1.0
+# Loaded by a tiny stdlib parser in config.py; python-dotenv is NOT required.
 
 # --- Voice (later): speech-to-text + text-to-speech, run on CPU ---
 # faster-whisper>=1.0

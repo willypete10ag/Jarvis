@@ -17,6 +17,33 @@ from pathlib import Path
 # so the project root is three parents up.
 PROJECT_ROOT: Path = Path(__file__).resolve().parents[2]
 
+
+def _load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE lines from a .env file into os.environ (no dependency).
+
+    Real environment variables always win, so nothing here overrides a value the
+    user has already exported. Malformed lines are skipped quietly.
+    """
+    if not path.exists():
+        return
+    try:
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    except OSError:
+        pass
+
+
+# Load secrets (Discord token, etc.) from <root>/.env before reading settings.
+# The .env file is git-ignored; secrets never enter the repo.
+_load_dotenv(PROJECT_ROOT / ".env")
+
 DATA_DIR: Path = PROJECT_ROOT / "data"
 BACKUP_DIR: Path = DATA_DIR / "backups"
 NOTES_DIR: Path = DATA_DIR / "notes"
@@ -54,6 +81,22 @@ LLM_API_KEY: str = os.environ.get("JARVIS_LLM_API_KEY", "lm-studio")
 
 # Seconds to wait on a single generation before giving up.
 LLM_TIMEOUT: float = float(os.environ.get("JARVIS_LLM_TIMEOUT", "120"))
+
+
+# ---------------------------------------------------------------------------
+# Discord (task capture + reminders that reach your phone)
+# ---------------------------------------------------------------------------
+# The bot token is a secret; it lives in <root>/.env (git-ignored), never here.
+DISCORD_TOKEN: str = os.environ.get("DISCORD_TOKEN", "")
+
+# The user Jarvis reports to. If left blank, the bot learns it from the first
+# person to DM it and remembers it (stored in the DB's meta table).
+DISCORD_OWNER_ID: str = os.environ.get("DISCORD_OWNER_ID", "")
+
+# How often the bot checks for due reminders to deliver over Discord (seconds).
+DISCORD_REMINDER_INTERVAL: float = float(
+    os.environ.get("JARVIS_DISCORD_REMINDER_INTERVAL", "30")
+)
 
 
 def ensure_dirs() -> None:

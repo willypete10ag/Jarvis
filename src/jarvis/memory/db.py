@@ -78,6 +78,23 @@ def init_db() -> None:
         conn.commit()
 
 
+def get_meta(key: str) -> str | None:
+    """Read a value from the small key/value ``meta`` table (or None)."""
+    with transaction() as conn:
+        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+
+def set_meta(key: str, value: str) -> None:
+    """Upsert a value into the ``meta`` table (worker/bot state lives here)."""
+    with transaction() as conn:
+        conn.execute(
+            "INSERT INTO meta(key, value) VALUES(?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+
+
 @contextmanager
 def transaction() -> Iterator[sqlite3.Connection]:
     """Context manager yielding a connection wrapped in a single transaction.

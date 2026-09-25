@@ -71,24 +71,6 @@ def _install_signal_handlers() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Small meta helpers (persist worker state in the DB's meta table)
-# ---------------------------------------------------------------------------
-def _get_meta(key: str) -> str | None:
-    with db.transaction() as conn:
-        row = conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else None
-
-
-def _set_meta(key: str, value: str) -> None:
-    with db.transaction() as conn:
-        conn.execute(
-            "INSERT INTO meta(key, value) VALUES(?, ?) "
-            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            (key, value),
-        )
-
-
-# ---------------------------------------------------------------------------
 # Tick work
 # ---------------------------------------------------------------------------
 def _reminder_body(t: T.Task) -> str:
@@ -116,10 +98,10 @@ def fire_due_reminders(notifier: notify.Notifier) -> int:
 def maybe_daily_backup() -> bool:
     """Write one backup per calendar day. Returns True if a backup was made."""
     today = datetime.now().date().isoformat()
-    if _get_meta(_BACKUP_META_KEY) == today:
+    if db.get_meta(_BACKUP_META_KEY) == today:
         return False
     path = mirror.backup_db(tag="daily")
-    _set_meta(_BACKUP_META_KEY, today)
+    db.set_meta(_BACKUP_META_KEY, today)
     if path:
         log.info("daily backup -> %s", path)
     return path is not None

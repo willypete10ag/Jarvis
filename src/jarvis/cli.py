@@ -229,6 +229,19 @@ def cmd_worker(args: argparse.Namespace) -> int:
     return worker.run(interval=args.interval, once=args.once)
 
 
+def cmd_capture(args: argparse.Namespace) -> int:
+    from jarvis.brain import agent
+
+    print(agent.handle(args.message))
+    return 0
+
+
+def cmd_discord(args: argparse.Namespace) -> int:
+    from jarvis import discord_bot
+
+    return discord_bot.run()
+
+
 def cmd_autostart(args: argparse.Namespace) -> int:
     from jarvis import autostart
 
@@ -334,6 +347,12 @@ def build_parser() -> argparse.ArgumentParser:
     pas.add_argument("action", choices=("install", "remove", "status", "start"),
                      help="install/remove the logon task, check status, or start it now")
     pas.set_defaults(func=cmd_autostart)
+
+    pcap = sub.add_parser("capture", help="capture a task from plain English (via the LLM)")
+    pcap.add_argument("message", help="e.g. 'remind me to call the dentist tomorrow at 2pm'")
+    pcap.set_defaults(func=cmd_capture)
+
+    sub.add_parser("discord", help="run the Discord bot (DM capture + phone reminders)").set_defaults(func=cmd_discord)
 
     return p
 

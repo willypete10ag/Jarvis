@@ -1,0 +1,139 @@
+"""The Discord bot: Jarvis off your desk and onto your phone.
+
+Runs as a single always-on process that does two jobs at once:
+
+1. **Capture** - DM the bot in plain English and it turns your message into task
+   actions (via :mod:`jarvis.brain.agent`) and replies to confirm.
+2. **Deliver** - a background loop checks for due reminders and DMs them to you,
+   so a nudge reaches your phone through the Discord app.
+
+The first person to DM the bot becomes its "owner" (remembered in the DB), which
+is who reminders get sent to. Set ``DISCORD_OWNER_ID`` in ``.env`` to pin it.
+
+Run it with:  jarvis discord
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import sys
+
+from jarvis import config
+from jarvis.brain import agent
+from jarvis.memory import db
+from jarvis.memory import tasks as T
+
+log = logging.getLogger("jarvis.discord")
+
+_OWNER_META_KEY = "discord_owner_id"
+
+try:
+    import discord
+    from discord.ext import tasks
+except ModuleNotFoundError:  # pragma: no cover - only when dep missing
+    discord = None  # type: ignore
+    tasks = None  # type: ignore
+
+
+def _reminder_text(t: T.Task) -> str:
+    lines = [f"🔔 **Reminder — #{t.id}: {t.title}**"]
+    if t.priority == "high":
+        lines.append("Priority: high")
+    if t.due_at:
+        lines.append(f"Due: {agent._fmt(t.due_at)}")
+    if t.next_action:
+        lines.append(f"Next: {t.next_action}")
+    return "\n".join(lines)
+
+
+def _build_client() -> "discord.Client":
+    intents = discord.Intents.default()
+    intents.message_content = True  # to read DM text (privileged; enabled in portal)
+    intents.dm_messages = True
+
+    client = discord.Client(intents=intents)
+
+    def _owner_id() -> int | None:
+        configured = config.DISCORD_OWNER_ID.strip()
+        stored = db.get_meta(_OWNER_META_KEY)
+        raw = configured or stored
+        return int(raw) if raw and raw.isdigit() else None
+
+    @client.event
+    async def on_ready() -> None:
+        log.info("Logged in as %s (id %s)", client.user, client.user.id)
+        if not reminder_loop.is_running():
+            reminder_loop.start()
+
+    @client.event
+    async def on_message(message: "discord.Message") -> None:
+        if message.author == client.user:
+            return
+        # Only act on direct messages for now.
+        if not isinstance(message.channel, discord.DMChannel):
+            return
+
+        # First person to DM becomes the owner, unless one is pinned in config.
+        if not config.DISCORD_OWNER_ID.strip() and db.get_meta(_OWNER_META_KEY) is None:
+            db.set_meta(_OWNER_META_KEY, str(message.author.id))
+            log.info("owner set to %s (%s)", message.author, message.author.id)
+
+        text = message.content.strip()
+        if not text:
+            return
+
+        # Task work is blocking (SQLite + a local LLM call); keep the event loop
+        # responsive by running it in a thread.
+        async with message.channel.typing():
+            reply = await asyncio.to_thread(agent.handle, text)
+        await message.channel.send(reply[:1900] if reply else "Done.")
+
+    @tasks.loop(seconds=config.DISCORD_REMINDER_INTERVAL)
+    async def reminder_loop() -> None:
+        try:
+            due = await asyncio.to_thread(T.due_reminders)
+            if not due:
+                return
+            owner_id = _owner_id()
+            if owner_id is None:
+                log.warning("%d reminder(s) due but no owner known yet", len(due))
+                return
+            user = await client.fetch_user(owner_id)
+            for t in due:
+                await user.send(_reminder_text(t))
+                await asyncio.to_thread(T.mark_reminded, t.id)
+                log.info("DMed reminder for task #%s", t.id)
+        except Exception:
+            log.exception("reminder loop tick failed")
+
+    @reminder_loop.before_loop
+    async def _before() -> None:
+        await client.wait_until_ready()
+
+    return client
+
+
+def run() -> int:
+    """Start the bot. Blocks until interrupted."""
+    if discord is None:
+        print("discord.py is not installed. Run: pip install discord.py", file=sys.stderr)
+        return 1
+    if not config.DISCORD_TOKEN:
+        print(
+            "No DISCORD_TOKEN set. Put it in your .env file as:\n"
+            "  DISCORD_TOKEN=your_token_here",
+            file=sys.stderr,
+        )
+        return 1
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
+    )
+    db.init_db()
+
+    client = _build_client()
+    log.info("starting Discord bot (reminder check every %ss)", config.DISCORD_REMINDER_INTERVAL)
+    client.run(config.DISCORD_TOKEN, log_handler=None)
+    return 0
