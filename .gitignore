@@ -16,11 +16,13 @@ data/*.db-wal
 data/*.db-shm
 data/backups/*
 data/notes/*
+data/models/*
 logs/*
 
 # Keep the folders themselves
 !data/backups/.gitkeep
 !data/notes/.gitkeep
+!data/models/.gitkeep
 !logs/.gitkeep
 
 # Editor / OS

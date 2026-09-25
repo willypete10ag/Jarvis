@@ -48,6 +48,8 @@ DATA_DIR: Path = PROJECT_ROOT / "data"
 BACKUP_DIR: Path = DATA_DIR / "backups"
 NOTES_DIR: Path = DATA_DIR / "notes"
 LOG_DIR: Path = PROJECT_ROOT / "logs"
+# Large model files (STT/TTS weights). Git-ignored; downloaded on first use.
+MODELS_DIR: Path = DATA_DIR / "models"
 
 # The durable task database. Override with JARVIS_DB env var (handy for tests).
 DB_PATH: Path = Path(os.environ.get("JARVIS_DB", DATA_DIR / "jarvis.db"))
@@ -99,7 +101,26 @@ DISCORD_REMINDER_INTERVAL: float = float(
 )
 
 
+# ---------------------------------------------------------------------------
+# Voice (speech-to-text + text-to-speech, both on the CPU so the GPU stays
+# dedicated to the LLM)
+# ---------------------------------------------------------------------------
+# faster-whisper model size. base.en is a good speed/accuracy balance on a
+# strong CPU; use small.en for more accuracy, tiny.en for more speed.
+STT_MODEL: str = os.environ.get("JARVIS_STT_MODEL", "base.en")
+
+# Kokoro TTS model files (downloaded into MODELS_DIR on first run).
+KOKORO_MODEL_PATH: Path = MODELS_DIR / "kokoro-v1.0.onnx"
+KOKORO_VOICES_PATH: Path = MODELS_DIR / "voices-v1.0.bin"
+# Voice id. British male suits a "Jarvis"; swap for any Kokoro voice.
+KOKORO_VOICE: str = os.environ.get("JARVIS_KOKORO_VOICE", "bm_george")
+KOKORO_SPEED: float = float(os.environ.get("JARVIS_KOKORO_SPEED", "1.0"))
+
+# Silence detection for the "listen until you stop talking" recorder.
+VOICE_SILENCE_SECONDS: float = float(os.environ.get("JARVIS_VOICE_SILENCE_SECONDS", "1.2"))
+
+
 def ensure_dirs() -> None:
     """Create every directory Jarvis writes to. Safe to call repeatedly."""
-    for d in (DATA_DIR, BACKUP_DIR, NOTES_DIR, LOG_DIR):
+    for d in (DATA_DIR, BACKUP_DIR, NOTES_DIR, LOG_DIR, MODELS_DIR):
         d.mkdir(parents=True, exist_ok=True)

@@ -18,6 +18,9 @@ parsedatetime>=2.6
 # --- Config / secrets ---
 # Loaded by a tiny stdlib parser in config.py; python-dotenv is NOT required.
 
-# --- Voice (later): speech-to-text + text-to-speech, run on CPU ---
-# faster-whisper>=1.0
-# piper-tts>=1.2
+# --- Voice: speech-to-text + text-to-speech, run on CPU ---
+faster-whisper>=1.2   # STT (Whisper via CTranslate2)
+kokoro-onnx>=0.6      # TTS (Kokoro via onnxruntime; no PyTorch needed)
+sounddevice>=0.5      # microphone capture + audio playback
+soundfile>=0.13       # audio file I/O (testing/round-trip)
+# Model files (kokoro-v1.0.onnx, voices-v1.0.bin) download into data/models/.

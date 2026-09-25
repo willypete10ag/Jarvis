@@ -242,6 +242,12 @@ def cmd_discord(args: argparse.Namespace) -> int:
     return discord_bot.run()
 
 
+def cmd_voice(args: argparse.Namespace) -> int:
+    from jarvis.voice import session
+
+    return session.run()
+
+
 def cmd_autostart(args: argparse.Namespace) -> int:
     from jarvis import autostart
 
@@ -353,6 +359,7 @@ def build_parser() -> argparse.ArgumentParser:
     pcap.set_defaults(func=cmd_capture)
 
     sub.add_parser("discord", help="run the Discord bot (DM capture + phone reminders)").set_defaults(func=cmd_discord)
+    sub.add_parser("voice", help="start a voice session: talk to Jarvis with your mic").set_defaults(func=cmd_voice)
 
     return p
 
