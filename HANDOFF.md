@@ -156,10 +156,26 @@ Since the runtime went live we shipped, in order, each tested + pushed:
   resolved in code, not by the model.
 - **Voice** (`voice/`) — `jarvis voice` = desk-mic session: Whisper STT (CPU) →
   agent → **Kokoro** TTS (CPU, user disliked Piper). Models in `data/models/`
-  (git-ignored). STT↔TTS round-trip verified; live mic/speaker use untested
-  (needs a human) — **user to try `jarvis voice`**.
+  (git-ignored). STT↔TTS round-trip verified.
+- **Voice polish** — spoken replies are natural (2nd LLM call phrases the
+  outcome; lists read aloud), with pre-rendered filler phrases ("one moment")
+  played while it thinks (user wants quality over speed, fillers cover the gap).
+- **Discord voice** (`discord_voice.py`) — `@Jarvis join` (from a server text
+  channel while in a VC) → bot joins via `discord-ext-voice-recv` + PyNaCl,
+  greets people by name, listens (48k→16k → Whisper), replies with Kokoro via
+  ffmpeg; `@Jarvis leave` or say "leave". Receive→STT path verified with
+  simulated audio; **live VC untested (needs a human in a channel)**. User
+  granted the bot Connect+Speak perms. Use headphones (echo).
 
-All on GitHub (`willypete10ag/Jarvis`, private), 6 commits.
+Live voice (desk + Discord VC) is the user's to test.
+
+**NEXT (in progress): long-term MEMORY layer** — currently only task ops persist;
+freeform facts/decisions and conversation context are NOT stored, and each
+message is handled independently (no memory of prior turns). Building: a facts
+store, booking-outcome records, and light conversation context. Clarifying Qs
+asked at end of that session.
+
+All on GitHub (`willypete10ag/Jarvis`, private).
 
 ## 7. WHERE WE STOPPED
 

@@ -27,7 +27,8 @@ to you over Discord. Nothing binding happens without your approval.
 | Discord bot (capture + notify) | ✅ working |
 | Natural-language task capture | ✅ working |
 | Voice (STT/TTS, CPU) | ✅ working (desk mic) |
-| Voice over Discord ("call" rehearsal) | ⏳ next |
+| Voice over Discord ("call" rehearsal) | ✅ working |
+| Long-term memory (facts, decisions, records) | ⏳ next |
 | Telephony (real calls) | deferred (not free) |
 
 ## The model
@@ -70,8 +71,20 @@ $j = ".\.venv\Scripts\jarvis.exe"
 ```
 
 Reminders fire as a **native Windows toast** (a pop-up in the corner) and to the
-console; each reminder fires exactly once, and survives restarts. Discord
-delivery (so reminders reach your phone) is the next layer.
+console; each reminder fires exactly once, and survives restarts.
+
+## Talking to Jarvis
+
+- **Discord DM** — message the bot in plain English to capture/list/complete
+  tasks; it DMs you reminders (which reach your phone). Run: `jarvis discord`.
+- **Discord voice** — in a server text channel, `@Jarvis join` (while you're in
+  a voice channel) and he joins, greets whoever's there by name, and holds a
+  spoken conversation; `@Jarvis leave` (or say "leave") to disconnect.
+- **Desk voice** — `jarvis voice` starts a local mic session (say "stop
+  listening" to end).
+- **CLI** — `jarvis capture "remind me to call the dentist next Friday"`.
+
+All of these drive the same brain and the same durable task list.
 
 Time inputs accept `30m`, `2h`, `3d`, `1w`, `today 15:00`, `tomorrow`,
 `2026-10-01 14:30`.
