@@ -96,7 +96,9 @@ def _build_client() -> "discord.Client":
         await message.channel.send(
             f"🎙️ Joined **{channel.name}**. Talk to me — say `leave` (here or out loud) when you're done."
         )
-        client.loop.create_task(discord_voice.converse(vc, greeting=greeting))
+        client.loop.create_task(
+            discord_voice.converse(vc, greeting=greeting, transcript_channel=message.channel)
+        )
 
     async def _handle_leave(message: "discord.Message") -> None:
         vc = message.guild.voice_client

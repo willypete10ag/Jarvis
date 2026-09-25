@@ -150,14 +150,31 @@ async def converse(
     vc: "voice_recv.VoiceRecvClient",
     *,
     greeting: str | None = "Hi, I'm here. What can I do for you?",
+    transcript_channel=None,  # a discord.TextChannel to mirror the conversation into
 ) -> None:
-    """Listen/think/speak loop for as long as Jarvis is in the channel."""
+    """Listen/think/speak loop for as long as Jarvis is in the channel.
+
+    If ``transcript_channel`` is given, everything Jarvis hears and says is also
+    posted there as text - invaluable for seeing what the mic/STT actually caught.
+    """
     collector = UtteranceCollector()
     vc.listen(voice_recv.BasicSink(collector.feed))
     log.info("listening in voice channel")
 
+    async def _note(msg: str) -> None:
+        if transcript_channel is not None:
+            try:
+                await transcript_channel.send(msg[:1900])
+            except Exception:
+                log.debug("couldn't post transcript line", exc_info=True)
+
+    # Warm the STT model up front so the first utterance isn't slow.
+    await _note("_(warming up speech recognition…)_")
+    await asyncio.to_thread(stt.warm_up)
+
     if greeting:
         await speak_in_vc(vc, greeting)
+    await _note("🎧 Listening. Speak any time; I'll show what I hear here.")
 
     try:
         while vc.is_connected():
@@ -166,21 +183,27 @@ async def converse(
                 continue  # don't process new speech while Jarvis is talking
             for pcm in collector.drain_ready(config.VOICE_SILENCE_SECONDS):
                 audio = _pcm_to_whisper(pcm)
+                dur = audio.size / STT_SR
                 if audio.size < int(STT_SR * _MIN_UTTERANCE_S):
+                    log.info("skipped short utterance (%.1fs)", dur)
                     continue
                 text = await asyncio.to_thread(stt.transcribe, audio)
                 if not text.strip():
+                    log.info("empty transcription (%.1fs of audio)", dur)
                     continue
-                log.info("VC heard: %s", text)
+                log.info("VC heard (%.1fs): %s", dur, text)
+                await _note(f"🗣️ **heard** ({dur:.1f}s): {text}")
 
                 norm = re.sub(r"[^a-z' ]", "", text.lower()).strip()
                 if norm in _LEAVE_PHRASES:
                     await speak_in_vc(vc, "Leaving now. Goodbye.")
+                    await _note("👋 Leaving the channel.")
                     await vc.disconnect()
                     return
 
-                reply = await asyncio.to_thread(agent.handle, text, spoken=True)
+                reply = await asyncio.to_thread(agent.handle, text, spoken=True, channel="voice_channel")
                 log.info("VC reply: %s", reply)
+                await _note(f"🤖 {reply}")
                 await speak_in_vc(vc, reply)
     except asyncio.CancelledError:
         pass
