@@ -11,6 +11,10 @@
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
 discord.py>=2.3
 
+# --- Natural-language dates ("next Friday", "in 3 weeks") -> resolved in code,
+#     not by the model, which is unreliable at weekday math. ---
+parsedatetime>=2.6
+
 # --- Config / secrets ---
 # Loaded by a tiny stdlib parser in config.py; python-dotenv is NOT required.
 

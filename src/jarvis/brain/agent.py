@@ -95,11 +95,11 @@ def _system_prompt() -> str:
         "You are Jarvis, a personal task assistant running on the user's PC. "
         "Read the user's message and call the single most appropriate tool. "
         f"Right now it is {now:%A, %Y-%m-%d %H:%M} local time. "
-        "For 'due' and 'remind', use a relative form like '2h', '3d', '1w', or "
-        "an absolute 'YYYY-MM-DD HH:MM' (24-hour). Resolve natural dates such as "
-        "'next Tuesday' to an absolute YYYY-MM-DD yourself using today's date. "
-        "If the user is only chatting and there is nothing to do, reply briefly "
-        "without calling a tool."
+        "For 'due' and 'remind', copy the user's own time wording verbatim "
+        "(e.g. 'next Friday', 'in 3 days', 'tomorrow at 2pm', '2026-10-01 14:30'). "
+        "Do NOT convert or do date math yourself - the system resolves the phrase "
+        "reliably. If the user is only chatting and there is nothing to do, reply "
+        "briefly without calling a tool."
     )
 
 
