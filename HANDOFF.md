@@ -2,7 +2,7 @@
 
 > **Purpose of this file:** let a fresh Claude session (or the user) resume this
 > project with full context. Read this top-to-bottom first. Last updated:
-> **2026-09-24**.
+> **2026-09-26**.
 
 ---
 
@@ -163,9 +163,9 @@ Since the runtime went live we shipped, in order, each tested + pushed:
 - **Discord voice** (`discord_voice.py`) — `@Jarvis join` (from a server text
   channel while in a VC) → bot joins via `discord-ext-voice-recv` + PyNaCl,
   greets people by name, listens (48k→16k → Whisper), replies with Kokoro via
-  ffmpeg; `@Jarvis leave` or say "leave". Receive→STT path verified with
-  simulated audio; **live VC untested (needs a human in a channel)**. User
-  granted the bot Connect+Speak perms. Use headphones (echo).
+  ffmpeg; `@Jarvis leave` or say "leave". User granted the bot Connect+Speak
+  perms. Use headphones (echo). **Live two-way VC now WORKING as of 2026-09-26
+  — see §6.6.**
 
 Live voice (desk + Discord VC) is the user's to test.
 
@@ -181,6 +181,36 @@ Live voice (desk + Discord VC) is the user's to test.
   always-ask, revisit when the booking engine is built.
 
 All on GitHub (`willypete10ag/Jarvis`, private).
+
+## 6.6 UPDATE (2026-09-26): Discord two-way voice LIVE + desktop launcher
+
+- **Live VC conversation works end-to-end.** User joined a real voice channel,
+  Jarvis heard them, transcribed, replied by voice, and held a back-and-forth.
+- **The blocker we had to solve — Discord DAVE (E2EE).** As of **2026-03-02
+  Discord globally enforces DAVE** (MLS end-to-end voice encryption). Effects:
+  - Must run **discord.py ≥ 2.7 + `davey`**. Older gateways are rejected with WS
+    **4006**; advertising no DAVE is rejected with WS **4017**. **Do NOT downgrade
+    to 2.5.x** (we tried — 4006). requirements.txt is pinned + commented.
+  - discord.py handles connecting + Jarvis *speaking*, but
+    **`discord-ext-voice-recv` has no DAVE support**, so inbound audio (Jarvis
+    *hearing*) failed opus decode with `OpusError: corrupted stream`.
+  - **Fix: a DAVE receive bridge** in `discord_bot.py::_enable_dave_receive()`.
+    The bot is a full member of the call's MLS group (that's how it sends
+    encrypted audio), so its `dave_session` already holds the keys to decrypt
+    everyone else. Three monkeypatches on voice-recv: (1) hand the decryptor a
+    ref to the voice client, (2) after transport decryption call
+    `dave_session.decrypt(sender_id, MediaType.audio, frame)` to strip the E2EE
+    layer → plaintext opus, (3) guard the decoder so one bad frame can't kill the
+    packet-router thread. Remove the bridge if/when voice-recv ships native DAVE.
+  - Added receive diagnostics + a file log at `logs/discord.log`
+    (`voice-recv diag: frames/pcm/...`; `pcm>0` + a "heard" line = working).
+- **Desktop launcher** (`scripts/start-jarvis.ps1` + a "Start Jarvis" desktop
+  shortcut, Iron-Man icon `scripts/jarvis.ico`): checks LM Studio is up (starts
+  it + loads `qwen/qwen3-8b` via the `lms` CLI if not), kills any stale Jarvis
+  instance (prevents the 4006 double-session), then runs `jarvis discord`.
+- **KNOWN ISSUE — latency (~5s/turn).** Round-trip (silence-gate → Whisper STT →
+  LLM reply → 2nd LLM call to phrase it → Kokoro TTS → playback) is ~5s+. User is
+  OK with it for now but wants it reduced next. See §8 for the plan.
 
 ## What's left toward the vision
 - **Booking engine** — a task Jarvis actively works and reports status on
@@ -226,6 +256,25 @@ Next up: the **background worker** (§8 step 4).
 
 ## 8. NEXT STEPS (in order)
 
+**CURRENT PRIORITY (2026-09-26): cut voice latency (~5s/turn).** Likely levers,
+roughly in order of expected payoff — measure each before/after:
+- **Instrument first.** Log per-stage timings (silence-gate, STT, LLM reply, the
+  2nd "phrase-the-outcome" LLM call, TTS, playback) so we optimize the real
+  bottleneck, not a guess. Suspect the two LLM calls dominate.
+- **Drop the 2nd LLM call in voice** — have the first reply already be speakable,
+  or gate the phrasing pass behind a length/complexity check. Saves a full
+  round-trip.
+- **Stream TTS / start speaking on first sentence** instead of waiting for the
+  whole reply; keep the "one moment" filler for the think gap.
+- **Tune the silence gate** (`VOICE_SILENCE_SECONDS`, currently 1.2s) down a bit
+  for snappier turn-taking.
+- **Model speed** — cap `max_tokens` for spoken replies, disable deep "thinking"
+  on the voice path, consider speculative decoding (LM Studio supports draft
+  models) since the 8B has headroom.
+- **STT** — `base.en` on CPU is fine; only revisit (e.g. `tiny.en`) if it's a
+  measured contributor.
+
+Original backlog (mostly done):
 1. ✅ **DONE** — Both models downloaded; 8B loaded and serving on `:1234/v1`.
 2. ✅ **DONE** — VRAM measured (8B: 8.3 GB used / 3.68 GB free).
 3. ✅ **DONE** — Brain client built (`src/jarvis/brain/`), configurable endpoint

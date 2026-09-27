@@ -179,6 +179,99 @@ def _build_client() -> "discord.Client":
     return client
 
 
+def _enable_dave_receive() -> None:
+    """Teach discord-ext-voice-recv to decrypt DAVE (E2EE) audio.
+
+    Since 2026-03-02 Discord globally enforces DAVE (MLS end-to-end voice
+    encryption). discord.py + davey handle it, so the bot joins and speaks, but
+    voice-recv only undoes the *transport* encryption and then feeds the still
+    E2E-encrypted opus straight to the decoder -> "OpusError: corrupted stream",
+    and Jarvis hears nothing.
+
+    The bot is a full member of the call's MLS group (that's how it can send
+    encrypted audio), so its `dave_session` already holds the keys to decrypt
+    everyone else's audio -- voice-recv just never calls decrypt(). We bridge the
+    two: after voice-recv finishes the transport decryption of each RTP packet,
+    run `dave_session.decrypt(sender_id, audio, frame)` to strip the E2EE layer,
+    leaving plaintext opus for the decoder. All of this is confined to two small
+    monkeypatches on voice-recv's reader; remove once voice-recv ships DAVE.
+    """
+    try:
+        import davey
+        from discord.ext.voice_recv import reader as vr_reader
+
+        AudioReader = vr_reader.AudioReader
+        PacketDecryptor = vr_reader.PacketDecryptor
+        audio_mt = davey.MediaType.audio
+
+        # 1) Give each decryptor a back-reference to its voice client, so the
+        #    wrapped decrypt_rtp below can reach the live dave_session + ssrc map.
+        _orig_reader_init = AudioReader.__init__
+
+        def _reader_init(self, sink, voice_client, *, after=None):
+            _orig_reader_init(self, sink, voice_client, after=after)
+            try:
+                self.decryptor._dave_vc = voice_client
+            except Exception:
+                pass
+
+        AudioReader.__init__ = _reader_init
+
+        # 2) After transport decryption, peel off the DAVE/E2EE layer.
+        _orig_decryptor_init = PacketDecryptor.__init__
+
+        def _decryptor_init(self, mode, secret_key):
+            _orig_decryptor_init(self, mode, secret_key)
+            self._dave_vc = None
+            _transport_decrypt = self.decrypt_rtp  # per-instance bound method
+
+            def _decrypt_rtp(packet):
+                raw = _transport_decrypt(packet)
+                vc = getattr(self, "_dave_vc", None)
+                if vc is None:
+                    return raw
+                conn = getattr(vc, "_connection", None)
+                ds = getattr(conn, "dave_session", None)
+                if ds is None or not getattr(ds, "ready", False):
+                    return raw  # DAVE not active -> transport data is plain opus
+                if not raw:
+                    return raw
+                uid = vc._get_id_from_ssrc(packet.ssrc)
+                if not uid:
+                    return raw
+                try:
+                    return ds.decrypt(uid, audio_mt, raw)
+                except Exception:
+                    # Passthrough frames or an unready decryptor for this user:
+                    # leave the bytes as-is rather than dropping the packet.
+                    return raw
+
+            self.decrypt_rtp = _decrypt_rtp
+
+        PacketDecryptor.__init__ = _decryptor_init
+
+        # 3) Resilience: in voice-recv a single frame that fails opus decode kills
+        #    the packet-router thread for good (all later audio is then lost). A
+        #    stray undecryptable frame during DAVE setup shouldn't deafen Jarvis
+        #    for the rest of the call, so drop the bad frame and keep going.
+        from discord.ext.voice_recv import opus as vr_opus
+
+        _orig_decode_packet = vr_opus.PacketDecoder._decode_packet
+
+        def _safe_decode_packet(self, packet):
+            try:
+                return _orig_decode_packet(self, packet)
+            except Exception:
+                log.debug("dropping an undecodable voice frame", exc_info=True)
+                return packet, b""  # empty pcm -> collector skips it, thread survives
+
+        vr_opus.PacketDecoder._decode_packet = _safe_decode_packet
+
+        log.info("DAVE receive bridge installed (voice-recv will decrypt E2EE audio)")
+    except Exception:
+        log.warning("could not install DAVE receive bridge; Jarvis may not hear voice", exc_info=True)
+
+
 def run() -> int:
     """Start the bot. Blocks until interrupted."""
     if discord is None:
@@ -192,10 +285,27 @@ def run() -> int:
         )
         return 1
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    fmt = "%(asctime)s %(levelname)-7s %(name)s: %(message)s"
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        config.ensure_dirs()
+        handlers.append(logging.FileHandler(config.LOG_DIR / "discord.log", encoding="utf-8"))
+    except OSError:
+        pass  # console logging still works if the file can't be opened
+    logging.basicConfig(level=logging.INFO, format=fmt, handlers=handlers)
+
+    # Opus must be loaded to *decode* incoming voice (discord.py only auto-loads
+    # it lazily for *sending*, which is too late for the receive decoder). Load
+    # it up front so Jarvis can hear from the very first frame.
+    try:
+        if not discord.opus.is_loaded():
+            discord.opus._load_default()
+        log.info("opus loaded: %s", discord.opus.is_loaded())
+    except Exception:
+        log.warning("could not load opus; voice receive may not work", exc_info=True)
+
+    _enable_dave_receive()
+
     db.init_db()
 
     client = _build_client()

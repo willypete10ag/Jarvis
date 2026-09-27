@@ -59,14 +59,32 @@ class UtteranceCollector:
         self._buffers: dict[int, bytearray] = {}
         self._last: dict[int, float] = {}
         self._lock = threading.Lock()
+        # Diagnostics: how many frames we've seen, how many carried decoded PCM,
+        # and how many arrived before the speaker's SSRC was mapped to a user.
+        self.frames = 0
+        self.frames_pcm = 0
+        self.frames_no_user = 0
+        self.bytes_total = 0
 
     def feed(self, user, data) -> None:  # noqa: ANN001
         pcm = getattr(data, "pcm", None)
-        if user is None or not pcm:
-            return
         with self._lock:
-            self._buffers.setdefault(user.id, bytearray()).extend(pcm)
-            self._last[user.id] = time.monotonic()
+            self.frames += 1
+            if not pcm:
+                return
+            self.frames_pcm += 1
+            self.bytes_total += len(pcm)
+            # A frame can arrive before voice-recv has mapped its SSRC to a user;
+            # bucket those under a sentinel key so we don't lose the audio.
+            uid = user.id if user is not None else -1
+            if user is None:
+                self.frames_no_user += 1
+            self._buffers.setdefault(uid, bytearray()).extend(pcm)
+            self._last[uid] = time.monotonic()
+
+    def stats(self) -> tuple[int, int, int, int]:
+        with self._lock:
+            return (self.frames, self.frames_pcm, self.frames_no_user, self.bytes_total)
 
     def drain_ready(self, silence: float) -> list[bytes]:
         """Return (and clear) audio for speakers quiet for >= ``silence`` seconds."""
@@ -176,9 +194,24 @@ async def converse(
         await speak_in_vc(vc, greeting)
     await _note("🎧 Listening. Speak any time; I'll show what I hear here.")
 
+    last_diag = 0.0
     try:
         while vc.is_connected():
             await asyncio.sleep(0.3)
+
+            # Every ~5s, log what the receive path is actually getting. This is
+            # the fast way to tell "no audio arriving" (frames=0 -> connection/
+            # permissions) from "audio arrives but won't decode" (frames>0,
+            # pcm=0 -> opus) from "decodes fine but STT drops it".
+            now = time.monotonic()
+            if now - last_diag >= 5.0:
+                last_diag = now
+                frames, fpcm, fnouser, nbytes = collector.stats()
+                log.info(
+                    "voice-recv diag: frames=%d pcm=%d no_user=%d bytes=%d",
+                    frames, fpcm, fnouser, nbytes,
+                )
+
             if vc.is_playing():
                 continue  # don't process new speech while Jarvis is talking
             for pcm in collector.drain_ready(config.VOICE_SILENCE_SECONDS):

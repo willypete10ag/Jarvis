@@ -9,7 +9,16 @@
 # The brain client uses only the stdlib (urllib), so no package is required here.
 
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
-discord.py>=2.3
+# Voice needs discord.py 2.7+ and `davey`: as of 2026-03-02 Discord GLOBALLY
+# enforces DAVE (MLS end-to-end voice encryption). Older gateways are rejected
+# (WebSocket 4006) and opting out of DAVE is rejected too (4017), so the bot must
+# speak DAVE to connect at all. Jarvis can therefore JOIN and SPEAK in a VC, but
+# HEARING users is currently blocked: discord-ext-voice-recv does not yet decrypt
+# DAVE audio (inbound frames fail opus decode with "corrupted stream"). Receiving
+# will work once voice-recv implements DAVE decryption (davey exposes
+# DaveSession.decrypt); track https://github.com/imayhaveborkedit/discord-ext-voice-recv
+discord.py>=2.7
+davey>=0.1                  # required by discord.py 2.7+ to use voice at all
 PyNaCl>=1.5                 # voice encryption (required to join voice channels)
 discord-ext-voice-recv>=0.5 # receive/decode other users' voice (not in core discord.py)
 # Voice-channel playback also needs ffmpeg on PATH (system install, not pip).

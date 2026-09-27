@@ -27,9 +27,16 @@ to you over Discord. Nothing binding happens without your approval.
 | Discord bot (capture + notify) | ✅ working |
 | Natural-language task capture | ✅ working |
 | Voice (STT/TTS, CPU) | ✅ working (desk mic) |
-| Voice over Discord ("call" rehearsal) | ✅ working |
+| Voice over Discord ("call" rehearsal) | ✅ working (live two-way) |
 | Long-term memory (facts, decisions, records) | ✅ working |
 | Telephony (real calls) | deferred (not free) |
+
+## Starting Jarvis
+
+Double-click the **"Start Jarvis"** desktop shortcut (or run
+`scripts/start-jarvis.ps1`). It makes sure LM Studio is running (starting it and
+loading `qwen/qwen3-8b` via the `lms` CLI if needed), clears any stale instance,
+then launches the Discord bot + voice. Keep the window open; Ctrl+C to stop.
 
 ## The model
 
@@ -79,7 +86,10 @@ console; each reminder fires exactly once, and survives restarts.
   tasks; it DMs you reminders (which reach your phone). Run: `jarvis discord`.
 - **Discord voice** — in a server text channel, `@Jarvis join` (while you're in
   a voice channel) and he joins, greets whoever's there by name, and holds a
-  spoken conversation; `@Jarvis leave` (or say "leave") to disconnect.
+  spoken conversation; `@Jarvis leave` (or say "leave") to disconnect. Works from
+  the mobile Discord app too. Needs **discord.py 2.7+ / `davey`**: Discord now
+  requires DAVE (end-to-end voice encryption), and Jarvis decrypts inbound audio
+  via a bridge in `discord_bot._enable_dave_receive()` (voice-recv can't yet).
 - **Desk voice** — `jarvis voice` starts a local mic session (say "stop
   listening" to end).
 - **CLI** — `jarvis capture "remind me to call the dentist next Friday"`.
