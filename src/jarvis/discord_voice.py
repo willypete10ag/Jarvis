@@ -30,7 +30,7 @@ from discord.ext import voice_recv
 from jarvis import config
 from jarvis.brain import agent
 from jarvis.voice import session as voice_session
-from jarvis.voice import stt, tts
+from jarvis.voice import stt, tts, vad
 
 log = logging.getLogger("jarvis.discord.voice")
 
@@ -87,7 +87,10 @@ class UtteranceCollector:
             return (self.frames, self.frames_pcm, self.frames_no_user, self.bytes_total)
 
     def drain_ready(self, silence: float) -> list[bytes]:
-        """Return (and clear) audio for speakers quiet for >= ``silence`` seconds."""
+        """Return (and clear) audio for speakers quiet for >= ``silence`` seconds.
+
+        Used only by the timer fallback when Silero VAD isn't available.
+        """
         now = time.monotonic()
         ready: list[bytes] = []
         with self._lock:
@@ -96,6 +99,16 @@ class UtteranceCollector:
                     ready.append(bytes(buf))
                     self._buffers[uid] = bytearray()
         return ready
+
+    def snapshot(self) -> dict[int, bytes]:
+        """Copy each speaker's buffered audio so far (without clearing it)."""
+        with self._lock:
+            return {uid: bytes(buf) for uid, buf in self._buffers.items() if buf}
+
+    def clear(self, uid: int) -> None:
+        """Drop a speaker's buffered audio (after we've consumed an utterance)."""
+        with self._lock:
+            self._buffers[uid] = bytearray()
 
 
 def _pcm_to_whisper(pcm: bytes) -> np.ndarray:
@@ -123,13 +136,19 @@ def _write_wav(samples: np.ndarray, sr: int) -> str:
     return tmp.name
 
 
-async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> None:
-    """Synthesize ``text`` with Kokoro and play it into the voice channel."""
+async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[float, float]:
+    """Synthesize ``text`` with Kokoro and play it into the voice channel.
+
+    Returns ``(synth_seconds, playback_seconds)`` for latency measurement.
+    """
     text = voice_session._speakable(text)
     if not text:
-        return
+        return (0.0, 0.0)
+
+    t_synth = time.monotonic()
     samples, sr = await asyncio.to_thread(tts.synthesize, text)
     path = await asyncio.to_thread(_write_wav, samples, sr)
+    synth_s = time.monotonic() - t_synth
 
     loop = asyncio.get_running_loop()
     done = asyncio.Event()
@@ -139,6 +158,7 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> None:
             log.warning("VC playback error: %s", err)
         loop.call_soon_threadsafe(done.set)
 
+    t_play = time.monotonic()
     try:
         if vc.is_playing():
             vc.stop()
@@ -149,6 +169,7 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> None:
             os.remove(path)
         except OSError:
             pass
+    return (synth_s, time.monotonic() - t_play)
 
 
 def build_greeting(names: list[str]) -> str:
@@ -162,6 +183,50 @@ def build_greeting(names: list[str]) -> str:
     else:
         who = ", ".join(names[:-1]) + f", and {names[-1]}"
     return f"Hello {who}. Jarvis here. What can I help you with?"
+
+
+async def _handle_utterance(vc: "voice_recv.VoiceRecvClient", audio: np.ndarray, note) -> bool:
+    """Transcribe one utterance, act on it, and speak the reply.
+
+    Returns True if a leave phrase was handled (the caller should then stop).
+    Logs a per-stage timing line so we can see where the round-trip time goes.
+    """
+    dur = audio.size / STT_SR
+    if audio.size < int(STT_SR * _MIN_UTTERANCE_S):
+        log.info("skipped short utterance (%.1fs)", dur)
+        return False
+
+    t0 = time.monotonic()
+    text = await asyncio.to_thread(stt.transcribe, audio)
+    stt_s = time.monotonic() - t0
+    if not text.strip():
+        log.info("empty transcription (%.1fs of audio, stt=%.2fs)", dur, stt_s)
+        return False
+    log.info("VC heard (%.1fs): %s", dur, text)
+    await note(f"🗣️ **heard** ({dur:.1f}s): {text}")
+
+    norm = re.sub(r"[^a-z' ]", "", text.lower()).strip()
+    if norm in _LEAVE_PHRASES:
+        await speak_in_vc(vc, "Leaving now. Goodbye.")
+        await note("👋 Leaving the channel.")
+        await vc.disconnect()
+        return True
+
+    t1 = time.monotonic()
+    reply = await asyncio.to_thread(agent.handle, text, spoken=True, channel="voice_channel")
+    llm_s = time.monotonic() - t1
+    log.info("VC reply: %s", reply)
+    await note(f"🤖 {reply}")
+
+    synth_s, play_s = await speak_in_vc(vc, reply)
+
+    # "think" = time from end of speech to Jarvis starting to talk (what we tune).
+    think_s = stt_s + llm_s + synth_s
+    timing = (f"⏱ stt={stt_s:.1f}s llm={llm_s:.1f}s tts={synth_s:.1f}s "
+              f"play={play_s:.1f}s | think={think_s:.1f}s")
+    log.info(timing)
+    await note(f"_{timing}_")
+    return False
 
 
 async def converse(
@@ -186,9 +251,13 @@ async def converse(
             except Exception:
                 log.debug("couldn't post transcript line", exc_info=True)
 
-    # Warm the STT model up front so the first utterance isn't slow.
+    # Warm the STT (and VAD) models up front so the first utterance isn't slow.
     await _note("_(warming up speech recognition…)_")
     await asyncio.to_thread(stt.warm_up)
+    use_vad = await asyncio.to_thread(vad.is_available)
+    if use_vad:
+        await asyncio.to_thread(vad.warm_up)
+    log.info("endpointing: %s", "Silero VAD" if use_vad else "silence timer")
 
     if greeting:
         await speak_in_vc(vc, greeting)
@@ -214,30 +283,27 @@ async def converse(
 
             if vc.is_playing():
                 continue  # don't process new speech while Jarvis is talking
-            for pcm in collector.drain_ready(config.VOICE_SILENCE_SECONDS):
-                audio = _pcm_to_whisper(pcm)
-                dur = audio.size / STT_SR
-                if audio.size < int(STT_SR * _MIN_UTTERANCE_S):
-                    log.info("skipped short utterance (%.1fs)", dur)
-                    continue
-                text = await asyncio.to_thread(stt.transcribe, audio)
-                if not text.strip():
-                    log.info("empty transcription (%.1fs of audio)", dur)
-                    continue
-                log.info("VC heard (%.1fs): %s", dur, text)
-                await _note(f"🗣️ **heard** ({dur:.1f}s): {text}")
 
-                norm = re.sub(r"[^a-z' ]", "", text.lower()).strip()
-                if norm in _LEAVE_PHRASES:
-                    await speak_in_vc(vc, "Leaving now. Goodbye.")
-                    await _note("👋 Leaving the channel.")
-                    await vc.disconnect()
-                    return
+            # Collect any finished utterances. With Silero VAD we endpoint on real
+            # speech (faster + noise-tolerant); otherwise fall back to the timer.
+            utterances: list[np.ndarray] = []
+            if use_vad:
+                min_len = int(config.VAD_MAX_UTTERANCE_S * STT_SR)
+                for uid, pcm in collector.snapshot().items():
+                    audio = _pcm_to_whisper(pcm)
+                    state, cut = await asyncio.to_thread(vad.endpoint, audio)
+                    if state == "endpoint":
+                        collector.clear(uid)
+                        utterances.append(audio[:cut])
+                    elif state == "silence" and audio.size >= min_len:
+                        collector.clear(uid)  # long stretch with no speech -> drop
+            else:
+                utterances = [_pcm_to_whisper(pcm)
+                              for pcm in collector.drain_ready(config.VOICE_SILENCE_SECONDS)]
 
-                reply = await asyncio.to_thread(agent.handle, text, spoken=True, channel="voice_channel")
-                log.info("VC reply: %s", reply)
-                await _note(f"🤖 {reply}")
-                await speak_in_vc(vc, reply)
+            for audio in utterances:
+                if await _handle_utterance(vc, audio, _note):
+                    return  # a leave phrase was spoken
     except asyncio.CancelledError:
         pass
     except Exception:

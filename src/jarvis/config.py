@@ -117,7 +117,27 @@ KOKORO_VOICE: str = os.environ.get("JARVIS_KOKORO_VOICE", "bm_george")
 KOKORO_SPEED: float = float(os.environ.get("JARVIS_KOKORO_SPEED", "1.0"))
 
 # Silence detection for the "listen until you stop talking" recorder.
+# Used as the fallback endpointing timer when Silero VAD is unavailable.
 VOICE_SILENCE_SECONDS: float = float(os.environ.get("JARVIS_VOICE_SILENCE_SECONDS", "1.2"))
+
+# Voice-activity detection (Silero VAD, ONNX) for Discord voice endpointing.
+# Replaces the fixed silence timer with real speech detection, so Jarvis replies
+# sooner after you stop talking and ignores non-speech noise. The ~2 MB model is
+# downloaded into MODELS_DIR on first use (like Kokoro); runs on the CPU via the
+# onnxruntime we already have. Set JARVIS_VAD=0 to force the timer fallback.
+SILERO_VAD_PATH: Path = MODELS_DIR / "silero_vad.onnx"
+VAD_ENABLED: bool = os.environ.get("JARVIS_VAD", "1") != "0"
+# Speech-probability thresholds (with hysteresis: enter on START, leave on END).
+VAD_START_PROB: float = float(os.environ.get("JARVIS_VAD_START_PROB", "0.5"))
+VAD_END_PROB: float = float(os.environ.get("JARVIS_VAD_END_PROB", "0.35"))
+# Ignore speech blips shorter than this (coughs, clicks).
+VAD_MIN_SPEECH_MS: int = int(os.environ.get("JARVIS_VAD_MIN_SPEECH_MS", "250"))
+# End the utterance after this much trailing silence (down from the 1.2s timer).
+VAD_END_SILENCE_MS: int = int(os.environ.get("JARVIS_VAD_END_SILENCE_MS", "500"))
+# Keep a little audio after the last speech so word tails aren't clipped.
+VAD_SPEECH_PAD_MS: int = int(os.environ.get("JARVIS_VAD_SPEECH_PAD_MS", "150"))
+# Safety cap: force-endpoint an utterance that runs this long without a pause.
+VAD_MAX_UTTERANCE_S: float = float(os.environ.get("JARVIS_VAD_MAX_UTTERANCE_S", "30"))
 
 
 def ensure_dirs() -> None:

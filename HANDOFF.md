@@ -256,23 +256,22 @@ Next up: the **background worker** (§8 step 4).
 
 ## 8. NEXT STEPS (in order)
 
-**CURRENT PRIORITY (2026-09-26): cut voice latency (~5s/turn).** Likely levers,
-roughly in order of expected payoff — measure each before/after:
-- **Instrument first.** Log per-stage timings (silence-gate, STT, LLM reply, the
-  2nd "phrase-the-outcome" LLM call, TTS, playback) so we optimize the real
-  bottleneck, not a guess. Suspect the two LLM calls dominate.
-- **Drop the 2nd LLM call in voice** — have the first reply already be speakable,
-  or gate the phrasing pass behind a length/complexity check. Saves a full
-  round-trip.
-- **Stream TTS / start speaking on first sentence** instead of waiting for the
-  whole reply; keep the "one moment" filler for the think gap.
-- **Tune the silence gate** (`VOICE_SILENCE_SECONDS`, currently 1.2s) down a bit
-  for snappier turn-taking.
+**CURRENT PRIORITY (2026-09-26): cut voice latency (~5s/turn).** Progress + levers:
+- ✅ **Instrumented** — each turn logs `⏱ stt=… llm=… tts=… play=… | think=…`
+  (to `logs/discord.log` and the transcript channel). `think` = end-of-speech →
+  Jarvis starts talking (the number to minimize). Use it to confirm the bottleneck.
+- ✅ **Silero VAD endpointing** (`voice/vad.py`) replaced the fixed 1.2s silence
+  timer: endpoints on real speech after ~0.5s trailing silence (≈0.7s/turn faster)
+  and rejects non-speech noise. ONNX via existing onnxruntime, no PyTorch; ~2 MB
+  model auto-downloads to `data/models/`. Falls back to the timer if unavailable
+  (`JARVIS_VAD=0` to force). Tunables in `config.py` (`VAD_*`).
+- **NEXT — drop the 2nd LLM call in voice** (suspected biggest cost): have the
+  first reply already be speakable, or gate the phrasing pass. Saves a round-trip.
+- **Stream TTS / start speaking on first sentence** instead of the whole reply;
+  keep the "one moment" filler for the think gap.
 - **Model speed** — cap `max_tokens` for spoken replies, disable deep "thinking"
-  on the voice path, consider speculative decoding (LM Studio supports draft
-  models) since the 8B has headroom.
-- **STT** — `base.en` on CPU is fine; only revisit (e.g. `tiny.en`) if it's a
-  measured contributor.
+  on the voice path, consider speculative decoding (LM Studio draft models).
+- **STT** — `base.en` on CPU is fine; only revisit (`tiny.en`) if timing shows it.
 
 Original backlog (mostly done):
 1. ✅ **DONE** — Both models downloaded; 8B loaded and serving on `:1234/v1`.

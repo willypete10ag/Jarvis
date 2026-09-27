@@ -35,4 +35,7 @@ faster-whisper>=1.2   # STT (Whisper via CTranslate2)
 kokoro-onnx>=0.6      # TTS (Kokoro via onnxruntime; no PyTorch needed)
 sounddevice>=0.5      # microphone capture + audio playback
 soundfile>=0.13       # audio file I/O (testing/round-trip)
+# Silero VAD (voice-channel endpointing) needs no extra package: it runs on the
+# onnxruntime that kokoro-onnx already pulls in, and the ~2 MB model downloads
+# into data/models/ on first use (see src/jarvis/voice/vad.py).
 # Model files (kokoro-v1.0.onnx, voices-v1.0.bin) download into data/models/.
