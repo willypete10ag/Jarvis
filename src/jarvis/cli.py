@@ -223,6 +223,13 @@ def cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_usage(args: argparse.Namespace) -> int:
+    from jarvis import usage
+
+    print(usage.format_summary(getattr(args, "month", None)))
+    return 0
+
+
 def cmd_worker(args: argparse.Namespace) -> int:
     from jarvis import worker
 
@@ -377,6 +384,10 @@ def build_parser() -> argparse.ArgumentParser:
     pbe.add_argument("--model", action="append", help="model id (repeatable to compare); default: configured")
     pbe.add_argument("--max-tokens", type=int, default=300, dest="max_tokens")
     pbe.set_defaults(func=cmd_bench)
+
+    pu = sub.add_parser("usage", help="show this month's Claude + Cartesia usage vs free tiers")
+    pu.add_argument("--month", help="YYYY-MM to report (default: current month)")
+    pu.set_defaults(func=cmd_usage)
 
     pw = sub.add_parser("worker", help="run the background worker (reminders + daily backup)")
     pw.add_argument("--interval", type=float, default=60.0, help="seconds between ticks (default 60)")

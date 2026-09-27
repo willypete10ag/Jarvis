@@ -21,6 +21,7 @@ import re
 import sys
 
 from jarvis import config
+from jarvis import usage
 from jarvis.brain import agent
 from jarvis.memory import db
 from jarvis.memory import tasks as T
@@ -28,6 +29,17 @@ from jarvis.memory import tasks as T
 log = logging.getLogger("jarvis.discord")
 
 _OWNER_META_KEY = "discord_owner_id"
+
+
+def _looks_like_usage_query(low: str) -> bool:
+    """True if the user is asking about API usage / free-tier consumption."""
+    if "usage" in low:
+        return True
+    if "how much" in low and any(
+        w in low for w in ("used", "left", "tier", "cartesia", "claude", "token", "quota", "spent")
+    ):
+        return True
+    return False
 
 try:
     import discord
@@ -132,6 +144,9 @@ def _build_client() -> "discord.Client":
                 return
             if mentioned:
                 ask = re.sub(r"<@!?\d+>", "", text).strip()  # drop the mention itself
+                if _looks_like_usage_query(ask.lower()):
+                    await message.channel.send(f"```\n{usage.format_summary()}\n```")
+                    return
                 if ask:
                     async with message.channel.typing():
                         reply = await asyncio.to_thread(agent.handle, ask)
@@ -148,7 +163,11 @@ def _build_client() -> "discord.Client":
             db.set_meta(_OWNER_META_KEY, str(message.author.id))
             log.info("owner set to %s (%s)", message.author, message.author.id)
 
-        # Task work is blocking (SQLite + a local LLM call); keep the event loop
+        if _looks_like_usage_query(low):
+            await message.channel.send(f"```\n{usage.format_summary()}\n```")
+            return
+
+        # Task work is blocking (SQLite + a Claude call); keep the event loop
         # responsive by running it in a thread.
         async with message.channel.typing():
             reply = await asyncio.to_thread(agent.handle, text)

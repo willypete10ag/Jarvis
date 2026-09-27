@@ -270,7 +270,15 @@ def chat(
         raise BrainError(f"Brain call failed ({e}).") from e
     elapsed = time.perf_counter() - start
 
-    return _parse_response(resp, model, elapsed)
+    result = _parse_response(resp, model, elapsed)
+    # Meter token usage (best-effort; never let metering break a call).
+    try:
+        from jarvis import usage
+
+        usage.record_claude(result.prompt_tokens, result.completion_tokens)
+    except Exception:
+        pass
+    return result
 
 
 def ask(prompt: str, *, system: Optional[str] = None, **kwargs: Any) -> ChatResult:

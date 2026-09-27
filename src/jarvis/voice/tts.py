@@ -98,6 +98,13 @@ def _synth_cartesia(text: str) -> tuple[np.ndarray, int]:
     samples = np.frombuffer(raw, dtype="<f4")
     if samples.size == 0:
         raise TTSError("Cartesia returned no audio.")
+    # Meter characters against the free tier (best-effort; never break synth).
+    try:
+        from jarvis import usage
+
+        usage.record_cartesia(len(text))
+    except Exception:
+        pass
     return samples, sr
 
 

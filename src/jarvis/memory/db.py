@@ -14,7 +14,7 @@ from typing import Iterator
 from jarvis import config
 
 # Schema version lets us migrate safely later without guessing the DB's shape.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
@@ -79,6 +79,16 @@ CREATE TABLE IF NOT EXISTS working_memory (
 CREATE INDEX IF NOT EXISTS idx_memories_category ON memories(category);
 CREATE INDEX IF NOT EXISTS idx_memories_subject  ON memories(subject);
 CREATE INDEX IF NOT EXISTS idx_working_day        ON working_memory(day);
+
+-- API usage counters, bucketed by local 'YYYY-MM' (see jarvis.usage).
+CREATE TABLE IF NOT EXISTS usage (
+    month          TEXT PRIMARY KEY,
+    claude_calls   INTEGER NOT NULL DEFAULT 0,
+    claude_in      INTEGER NOT NULL DEFAULT 0,
+    claude_out     INTEGER NOT NULL DEFAULT 0,
+    cartesia_calls INTEGER NOT NULL DEFAULT 0,
+    cartesia_chars INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
