@@ -208,9 +208,38 @@ All on GitHub (`willypete10ag/Jarvis`, private).
   shortcut, Iron-Man icon `scripts/jarvis.ico`): checks LM Studio is up (starts
   it + loads `qwen/qwen3-8b` via the `lms` CLI if not), kills any stale Jarvis
   instance (prevents the 4006 double-session), then runs `jarvis discord`.
-- **KNOWN ISSUE — latency (~5s/turn).** Round-trip (silence-gate → Whisper STT →
-  LLM reply → 2nd LLM call to phrase it → Kokoro TTS → playback) is ~5s+. User is
-  OK with it for now but wants it reduced next. See §8 for the plan.
+- **Voice latency work (2026-09-26/27), see §8 for detail.** Shipped: per-stage
+  timing, Silero VAD endpointing, streaming TTS, dropped the 2nd LLM call on task
+  turns, smoother chunking. Live `think` ~6-10s. Remaining puzzle below.
+
+## ⏸ WHERE WE STOPPED (2026-09-27 night)
+
+Voice two-way works well; the push now is **latency**. Current live numbers:
+`stt≈0.8s` (fine), `llm≈2.7s` chat / was ~5.5s on task turns but **now ~2.7s**
+after dropping the 2nd LLM call, `tts1st≈3.4s` (dominant).
+
+**The open puzzle:** warm Kokoro synth benchmarks at **0.63s** on this machine at
+any thread count, yet live `tts1st` is ~3.4s. So the cost is scheduling/contention,
+not synthesis compute or threads. **Prime suspect:** voice-recv continuously
+DAVE-decrypts + opus-decodes inbound mic audio in its router thread, starving the
+synth while Jarvis is composing/speaking.
+
+**FIRST THING NEXT SESSION:** get a fresh `⏱` line — it now prints
+`tts1st=.. (synth1=..)`. `synth1` is the *pure* Kokoro time for chunk 0.
+  - `synth1` small (~0.7s) but `tts1st` ~3s  → contention/scheduling. Fix ideas:
+    pause/park inbound listening while Jarvis speaks, run synth off the contended
+    path, or a dedicated executor; consider `vc.stop_listening()` during playback.
+  - `synth1` also ~3s  → synthesis really is slow under load → faster/GPU TTS.
+Config toggles: `JARVIS_VOICE_FAST=0` restores natural (slower) phrasing;
+`JARVIS_VAD=0` restores the silence timer. Chunk caps + VAD tunables in config.py.
+
+**Open correctness items (deferred by user, revisit after speed):**
+- VAD over-capture → Whisper hallucination ("You. You. You." on a long silent
+  tail; one turn captured 10.3s → stt 4.5s). Tune VAD thresholds / trailing trim.
+- Natural-language "leave" only matches exact phrases; "can you leave now" etc.
+  don't trigger. Detect leave *intent* like the text @mention path does.
+- Task add/remove correctness: a "remove water my plants" turn read the list
+  instead; duplicate task entries appeared. Needs a look.
 
 ## What's left toward the vision
 - **Booking engine** — a task Jarvis actively works and reports status on
