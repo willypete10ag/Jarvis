@@ -40,11 +40,53 @@ _MIN_UTTERANCE_S = 0.4  # ignore sub-half-second blips (coughs, clicks)
 
 _FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 
-# Things you can say in the channel to make Jarvis leave.
-_LEAVE_PHRASES = {
-    "leave", "leave the channel", "disconnect", "goodbye", "good bye", "bye",
-    "go away", "that's all", "thats all", "stop listening", "you can go",
+# --- Conversational "leave the call" detection ------------------------------
+# We want natural phrasings ("thanks Jarvis, you can leave now", "alright,
+# that'll be all") to disconnect him - not only an exact word. Strategy: match
+# unambiguous multi-word phrases anywhere in the utterance, plus bare farewells
+# when they're essentially the whole thing. Bare "leave" is deliberately NOT a
+# substring trigger, so "leave a note about X" is safe.
+
+# Unambiguous leave phrases - matched as substrings anywhere in the utterance.
+_LEAVE_PHRASES = (
+    "leave the call", "leave the channel", "leave the chat", "leave the vc",
+    "leave the voice", "leave the meeting", "leave voice", "leave now",
+    "please leave", "you can leave", "go ahead and leave", "feel free to leave",
+    "you can go", "you can head out", "you can hop off", "you can take off",
+    "you can disconnect", "you may leave", "you may go", "head out",
+    "disconnect", "hang up", "hop off", "sign off", "log off",
+    "get off the call", "get out of the call", "exit the call", "drop off the call",
+    "that'll be all", "that will be all", "that is all", "that's all", "thats all",
+    "that's it", "thats it", "that's everything", "thats everything",
+    "you're dismissed", "youre dismissed", "dismissed", "go away", "stop listening",
+    "see you", "see ya", "peace out", "talk to you later", "catch you later",
+)
+
+# Single-word farewells: trigger only when they're the whole utterance (after
+# stripping polite filler like "thanks jarvis").
+_FAREWELL_WORDS = {"leave", "bye", "goodbye", "cya", "later", "peace", "adios", "dismissed"}
+
+# Filler tokens ignored when checking for a bare farewell.
+_FILLER_TOKENS = {
+    "thanks", "thank", "you", "jarvis", "ok", "okay", "alright", "hey", "um", "uh",
+    "so", "well", "and", "now", "then", "please", "cool", "great", "awesome",
+    "perfect", "all", "right", "much", "appreciate", "it", "buddy", "man",
 }
+
+
+def _is_leave_request(text: str) -> bool:
+    """True if the user is (conversationally) asking Jarvis to leave the call."""
+    norm = re.sub(r"\s+", " ", re.sub(r"[^a-z' ]", " ", text.lower())).strip()
+    if not norm:
+        return False
+    # Negation guard: "don't leave", "no need to go", "not yet, stay", etc.
+    if re.search(r"\b(don'?t|do not|never|no need to|not)\b[a-z' ]{0,15}\b(leave|go|disconnect|hang up)\b", norm):
+        return False
+    if any(phrase in norm for phrase in _LEAVE_PHRASES):
+        return True
+    # Bare farewell: strip filler, then see if what's left is a single goodbye word.
+    core = [t for t in norm.split() if t not in _FILLER_TOKENS]
+    return len(core) == 1 and core[0] in _FAREWELL_WORDS
 
 
 class UtteranceCollector:
@@ -282,9 +324,8 @@ async def _handle_utterance(vc: "voice_recv.VoiceRecvClient", audio: np.ndarray,
     log.info("VC heard (%.1fs): %s", dur, text)
     await note(f"🗣️ **heard** ({dur:.1f}s): {text}")
 
-    norm = re.sub(r"[^a-z' ]", "", text.lower()).strip()
-    if norm in _LEAVE_PHRASES:
-        await speak_in_vc(vc, "Goodbye.")  # short, so leaving is quick
+    if _is_leave_request(text):
+        await speak_in_vc(vc, "Of course. Goodbye, sir.")  # short, so leaving is quick
         await note("👋 Leaving the channel.")
         await vc.disconnect()
         return True
