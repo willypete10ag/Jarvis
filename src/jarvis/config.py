@@ -120,7 +120,28 @@ DISCORD_REMINDER_INTERVAL: float = float(
 # strong CPU; use small.en for more accuracy, tiny.en for more speed.
 STT_MODEL: str = os.environ.get("JARVIS_STT_MODEL", "base.en")
 
-# Kokoro TTS model files (downloaded into MODELS_DIR on first run).
+# --- TTS engine selection ---
+# "cartesia" = Cartesia Sonic (cloud, human-sounding, low latency; needs a key).
+# "kokoro"   = local Kokoro ONNX (free/offline, but robotic).
+# "auto" (default) uses Cartesia when CARTESIA_API_KEY is set, else Kokoro.
+TTS_PROVIDER: str = os.environ.get("JARVIS_TTS", "auto").strip().lower()
+
+# --- Cartesia Sonic (cloud TTS) ---
+# Key is a secret -> put it in .env as CARTESIA_API_KEY. Billing is per-character
+# (the free tier is plenty for personal use). Voice defaults to "Archie", an
+# en-GB male voice Cartesia recommends for agents; swap via JARVIS_CARTESIA_VOICE
+# (browse voices at https://play.cartesia.ai/voices).
+CARTESIA_API_KEY: str = os.environ.get("CARTESIA_API_KEY", "")
+CARTESIA_MODEL: str = os.environ.get("JARVIS_CARTESIA_MODEL", "sonic-3.6")
+CARTESIA_VOICE_ID: str = os.environ.get(
+    "JARVIS_CARTESIA_VOICE", "ef191366-f52f-447a-a398-ed8c0f2943a1"  # "Archie", en-GB male
+)
+CARTESIA_SAMPLE_RATE: int = int(os.environ.get("JARVIS_CARTESIA_SAMPLE_RATE", "44100"))
+# API version header Cartesia requires (pin so behavior is stable).
+CARTESIA_VERSION: str = os.environ.get("JARVIS_CARTESIA_VERSION", "2026-08-14")
+
+# --- Kokoro TTS (local ONNX fallback) ---
+# Model files download into MODELS_DIR on first run.
 KOKORO_MODEL_PATH: Path = MODELS_DIR / "kokoro-v1.0.onnx"
 KOKORO_VOICES_PATH: Path = MODELS_DIR / "voices-v1.0.bin"
 # Voice id. British male suits a "Jarvis"; swap for any Kokoro voice.

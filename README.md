@@ -60,8 +60,15 @@ stop. (No local model to boot anymore — just needs the key and internet.)
   voice loop. Swap with `JARVIS_LLM_MODEL` (e.g. `claude-sonnet-5` for more
   reasoning power, `claude-opus-5` for maximum intelligence) — no code change.
 - Extended thinking is off by default to keep voice latency low.
-- Voice models (Whisper STT, Kokoro TTS) still run **locally on the CPU**; only
-  the brain is in the cloud.
+
+## Voice
+
+- **STT:** Whisper (`faster-whisper`), local on the CPU.
+- **TTS:** **Cartesia Sonic** (cloud) by default — a human-sounding, low-latency
+  voice (default is "Archie", an en-GB male). Put a free key in `.env` as
+  `CARTESIA_API_KEY` (get one at https://play.cartesia.ai). Swap the voice with
+  `JARVIS_CARTESIA_VOICE`. Falls back to local **Kokoro** (robotic, but free/
+  offline) when there's no Cartesia key, or force it with `JARVIS_TTS=kokoro`.
 
 ## Usage (task CLI)
 

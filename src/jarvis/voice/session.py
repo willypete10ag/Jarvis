@@ -179,12 +179,15 @@ def run() -> int:
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
 
-    # Fail early with a friendly message if the TTS models aren't present.
-    try:
-        tts.ensure_models()
-    except FileNotFoundError as e:
-        print(e)
-        return 1
+    # Fail early with a friendly message if the local Kokoro models aren't
+    # present. Only relevant when Kokoro is the active engine - Cartesia (cloud)
+    # needs no local model files.
+    if tts._provider() == "kokoro":
+        try:
+            tts.ensure_models()
+        except FileNotFoundError as e:
+            print(e)
+            return 1
 
     print("Warming up voice models (first run may take a bit)...")
     stt.warm_up()
