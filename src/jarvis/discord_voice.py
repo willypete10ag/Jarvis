@@ -136,52 +136,42 @@ def _write_wav(samples: np.ndarray, sr: int) -> str:
     return tmp.name
 
 
-# Split a reply into small speakable chunks so the first one synthesizes fast
-# (Kokoro runs ~1x realtime, so a long first chunk = a long silence before Jarvis
-# speaks). We break on sentences, then break any long sentence on clause
-# boundaries (commas/semicolons/colons), capping chunk length. Tiny fragments are
-# merged forward so Kokoro isn't called on 3-word snippets.
-_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*", re.UNICODE)
-_MIN_CHUNK_CHARS = 24
-_MAX_CHUNK_CHARS = 60
+# Split a reply for streaming TTS. The goal: a SMALL first chunk so Jarvis starts
+# talking fast, then LARGE remaining chunks so there are few synth boundaries
+# (each boundary risks a gap if synthesis can't keep up with playback under load).
+_UNIT_RE = re.compile(r"[^.!?,;:\n]+[.!?,;:]*", re.UNICODE)
+_FIRST_MAX_CHARS = 50   # first spoken chunk: keep it short for fast first word
+_REST_MAX_CHARS = 200   # later chunks: keep them big to avoid choppy playback
 
 
-def _split_long(sentence: str) -> list[str]:
-    parts = re.split(r"(?<=[,;:])\s+", sentence)
-    chunks: list[str] = []
+def _split_sentences(text: str) -> list[str]:
+    units = [m.group().strip() for m in _UNIT_RE.finditer(text)]
+    units = [u for u in units if u]
+    if not units:
+        return []
+
+    # First chunk: pack clause units up to a small cap (always take at least one).
+    first = ""
+    i = 0
+    while i < len(units) and (not first or len(first) + 1 + len(units[i]) <= _FIRST_MAX_CHARS):
+        first = f"{first} {units[i]}".strip()
+        i += 1
+    chunks = [first]
+
+    # Remaining chunks: pack up to a larger cap for smooth, gap-free playback.
     cur = ""
-    for p in parts:
-        if cur and len(cur) + len(p) + 1 > _MAX_CHUNK_CHARS:
+    for u in units[i:]:
+        if cur and len(cur) + 1 + len(u) > _REST_MAX_CHARS:
             chunks.append(cur)
-            cur = p
+            cur = u
         else:
-            cur = f"{cur} {p}".strip()
+            cur = f"{cur} {u}".strip()
     if cur:
         chunks.append(cur)
     return chunks
 
 
-def _split_sentences(text: str) -> list[str]:
-    pieces: list[str] = []
-    for m in _SENTENCE_RE.finditer(text):
-        sent = m.group().strip()
-        if not sent:
-            continue
-        if len(sent) <= _MAX_CHUNK_CHARS:
-            pieces.append(sent)
-        else:
-            pieces.extend(_split_long(sent))
-
-    chunks: list[str] = []
-    for s in pieces:
-        if chunks and len(chunks[-1]) < _MIN_CHUNK_CHARS:
-            chunks[-1] = f"{chunks[-1]} {s}"
-        else:
-            chunks.append(s)
-    return chunks
-
-
-async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[float, float]:
+async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[float, float, float]:
     """Speak ``text`` into the voice channel, streaming it sentence by sentence.
 
     Kokoro synthesizes at roughly 1x realtime, so synthesizing a whole long reply
@@ -190,7 +180,9 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[floa
     synthesized while sentence 2 synthesizes in the background, and so on. This
     collapses time-to-first-word to about one sentence's worth of synthesis.
 
-    Returns ``(time_to_first_audio, total_playback_seconds)``.
+    Returns ``(time_to_first_audio, total_playback_seconds, first_chunk_synth_s)``.
+    ``first_chunk_synth`` is the pure Kokoro synthesis time for chunk 0, so we can
+    tell real synth cost apart from scheduling/contention overhead.
     """
     text = voice_session._speakable(text)
     if not text:
@@ -202,15 +194,23 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[floa
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue = asyncio.Queue()
 
+    first_synth = 0.0
+
     async def _synthesize_all() -> None:
-        # One sentence at a time (so Kokoro runs serially), handed off eagerly.
-        for sentence in sentences:
+        nonlocal first_synth
+        # One chunk at a time (so Kokoro runs serially), handed off eagerly.
+        for idx, sentence in enumerate(sentences):
             try:
+                t_syn = time.monotonic()
                 samples, sr = await asyncio.to_thread(tts.synthesize, sentence)
                 path = await asyncio.to_thread(_write_wav, samples, sr)
+                dt = time.monotonic() - t_syn
+                if idx == 0:
+                    first_synth = dt
+                log.info("tts chunk %d synth=%.2fs (%d chars)", idx, dt, len(sentence))
                 await queue.put(path)
             except Exception:
-                log.warning("TTS synth failed for a sentence; skipping", exc_info=True)
+                log.warning("TTS synth failed for a chunk; skipping", exc_info=True)
         await queue.put(None)  # end-of-stream sentinel
 
     producer = asyncio.create_task(_synthesize_all())
@@ -246,7 +246,7 @@ async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[floa
     finally:
         await producer
 
-    return (ttfa or 0.0, play_total)
+    return (ttfa or 0.0, play_total, first_synth)
 
 
 def build_greeting(names: list[str]) -> str:
@@ -284,7 +284,7 @@ async def _handle_utterance(vc: "voice_recv.VoiceRecvClient", audio: np.ndarray,
 
     norm = re.sub(r"[^a-z' ]", "", text.lower()).strip()
     if norm in _LEAVE_PHRASES:
-        await speak_in_vc(vc, "Leaving now. Goodbye.")
+        await speak_in_vc(vc, "Goodbye.")  # short, so leaving is quick
         await note("👋 Leaving the channel.")
         await vc.disconnect()
         return True
@@ -295,13 +295,15 @@ async def _handle_utterance(vc: "voice_recv.VoiceRecvClient", audio: np.ndarray,
     log.info("VC reply: %s", reply)
     await note(f"🤖 {reply}")
 
-    ttfa_s, play_s = await speak_in_vc(vc, reply)
+    ttfa_s, play_s, synth1_s = await speak_in_vc(vc, reply)
 
     # "think" = time from end of speech to Jarvis's FIRST spoken word (with
-    # streaming TTS this is one sentence's synthesis, not the whole reply).
+    # streaming TTS this is one chunk's synthesis, not the whole reply). synth1 is
+    # the pure Kokoro time for that chunk; if tts1st >> synth1, the gap is
+    # scheduling/contention rather than synthesis itself.
     think_s = stt_s + llm_s + ttfa_s
     timing = (f"⏱ stt={stt_s:.1f}s llm={llm_s:.1f}s tts1st={ttfa_s:.1f}s "
-              f"play={play_s:.1f}s | think={think_s:.1f}s")
+              f"(synth1={synth1_s:.1f}s) play={play_s:.1f}s | think={think_s:.1f}s")
     log.info(timing)
     await note(f"_{timing}_")
     return False
