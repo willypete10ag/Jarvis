@@ -1,8 +1,8 @@
-"""Jarvis' "brain": the local LLM it uses to reason, plan, and call tools.
+"""Jarvis' "brain": Claude, which it uses to reason, plan, and call tools.
 
-The brain is reached over an OpenAI-compatible HTTP API (LM Studio by default,
-Ollama as a spare), so it can be swapped without code changes. See
-``jarvis.config`` for the endpoint and model settings.
+Reached through the official ``anthropic`` SDK (default model
+``claude-haiku-4-5``). The model is swappable without code changes via
+``JARVIS_LLM_MODEL``. See ``jarvis.config`` for model and credential settings.
 """
 
 from jarvis.brain.client import (

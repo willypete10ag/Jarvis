@@ -4,9 +4,11 @@
 # Python standard library, so your task record can never break from a bad
 # dependency. The packages below get installed as we build each later layer.
 
-# --- Brain: talk to the local model over its OpenAI-compatible API ---
-# (LM Studio @ :1234/v1  or  Ollama @ :11434/v1)
-# The brain client uses only the stdlib (urllib), so no package is required here.
+# --- Brain: Claude via the official Anthropic SDK ---
+# Jarvis's brain is Claude (default model: claude-haiku-4-5), reached through the
+# anthropic SDK. Billing is pay-per-token via console.anthropic.com; put the key
+# in .env as ANTHROPIC_API_KEY. Swap models with JARVIS_LLM_MODEL (no code change).
+anthropic>=1.8
 
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
 # Voice needs discord.py 2.7+ and `davey`: as of 2026-03-02 Discord GLOBALLY

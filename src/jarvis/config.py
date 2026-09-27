@@ -63,23 +63,27 @@ BACKUP_RETENTION: int = 30
 
 
 # ---------------------------------------------------------------------------
-# Local LLM ("brain") runtime
+# The "brain": Claude, via the Anthropic API
 # ---------------------------------------------------------------------------
-# Jarvis talks to a local model over an OpenAI-compatible API. Any runtime that
-# speaks that protocol works, so the brain is swappable without touching code:
-#   LM Studio -> http://localhost:1234/v1   (default)
-#   Ollama    -> http://localhost:11434/v1
-# Override any of these at runtime with the matching JARVIS_* env var.
-LLM_BASE_URL: str = os.environ.get("JARVIS_LLM_BASE_URL", "http://localhost:1234/v1")
+# Jarvis used to run a local model (Qwen3-8B) over an OpenAI-compatible API.
+# It now uses Claude through the `anthropic` SDK: much smarter, much faster, and
+# no local GPU. The model is swappable without touching code - just set
+# JARVIS_LLM_MODEL. Billing is pay-per-token via console.anthropic.com (a Claude
+# Pro/Max subscription does NOT cover API usage - it's separate).
 
-# The daily-driver model. Qwen3-8B was chosen over 14B for VRAM headroom and
-# ~2x speed on the 12 GB GPU (see HANDOFF.md §"model"). This base id resolves
-# regardless of any load-instance suffix LM Studio appends (e.g. ":2").
-LLM_MODEL: str = os.environ.get("JARVIS_LLM_MODEL", "qwen/qwen3-8b")
+# API credentials. The key is a secret and lives in <root>/.env (git-ignored).
+# `ANTHROPIC_API_KEY` is the SDK's standard name, so it's read directly.
+ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
-# OpenAI-compatible servers require *some* API key; LM Studio and Ollama ignore
-# its value, so a placeholder is fine. A real key (if ever needed) goes in .env.
-LLM_API_KEY: str = os.environ.get("JARVIS_LLM_API_KEY", "lm-studio")
+# The daily-driver model. Haiku 4.5 is the default: fastest + cheapest, which
+# matters most for a real-time voice loop, and still far more capable than the
+# old local model. Bump to `claude-sonnet-5` for more reasoning power, or
+# `claude-opus-5` for maximum intelligence (both slower/pricier).
+LLM_MODEL: str = os.environ.get("JARVIS_LLM_MODEL", "claude-haiku-4-5")
+
+# API base URL. Normally the Anthropic default; override only to route through a
+# proxy or gateway. (Kept for display in `jarvis brain --health`.)
+LLM_BASE_URL: str = os.environ.get("JARVIS_LLM_BASE_URL", "https://api.anthropic.com")
 
 # Seconds to wait on a single generation before giving up.
 LLM_TIMEOUT: float = float(os.environ.get("JARVIS_LLM_TIMEOUT", "120"))
