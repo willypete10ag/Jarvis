@@ -2,7 +2,39 @@
 
 > **Purpose of this file:** let a fresh Claude session (or the user) resume this
 > project with full context. Read this top-to-bottom first. Last updated:
-> **2026-09-26**.
+> **2026-09-27**.
+
+---
+
+## 0. ⚡ 2026-09-27 PIVOT — brain is now Claude, not a local model
+
+The local model (Qwen3-8B on LM Studio) was too slow and too limited. **The
+brain is now Claude via the Anthropic API** (`anthropic` SDK). Everything below
+about LM Studio / Ollama / Qwen / GPU VRAM for the LLM is **historical** — kept
+for context, but no longer how the brain works.
+
+- **Model:** default `claude-haiku-4-5` (fastest/cheapest, best for the voice
+  loop). Swap via `JARVIS_LLM_MODEL` (`claude-sonnet-5`, `claude-opus-5`) — no
+  code change. Billing is **pay-per-token** (console.anthropic.com); a Claude
+  Pro/Max subscription does **not** cover the API.
+- **What changed:** `src/jarvis/brain/client.py` rewritten to call Claude while
+  keeping the same `chat()`/`ChatResult` interface (agent/voice/cli/bench
+  untouched). `config.py` now reads `ANTHROPIC_API_KEY` and defaults the model to
+  Haiku. `scripts/start-jarvis.ps1` no longer boots LM Studio — it just checks
+  the key and starts the bot. `requirements.txt` adds `anthropic>=1.8`.
+- **No local GPU needed for the brain.** Only Whisper (STT) + Kokoro (TTS) still
+  run locally on CPU. The plan is to eventually host the bot on a small always-on
+  box (an OptiPlex / the Pi once upgraded) instead of the gaming PC. Runs on the
+  main PC for now.
+- **To run:** put `ANTHROPIC_API_KEY=sk-ant-...` in `.env`, then start as usual.
+- **Pending live test:** as of this commit the key wasn't in `.env` yet, so the
+  swap is verified offline (interface, translation, mocked agent run) but not yet
+  against the live API over Discord. First check on next run: `jarvis brain
+  --health`, then a voice turn.
+- **Latency note:** the old tts1st ~3.4s puzzle (§ below) is now separate from
+  the brain. Haiku replies should be sub-second; if time-to-first-word is still
+  high, it's the TTS/synth stage, not the LLM. Streaming the LLM into the
+  sentence-by-sentence TTS is a possible future optimization (not done yet).
 
 ---
 

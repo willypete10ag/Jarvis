@@ -1,14 +1,19 @@
 # Jarvis
 
-A local, always-on background task agent that runs on your own hardware
-(RTX 4070 Ti, 12 GB VRAM). You hand it tasks; it keeps a permanent record,
-works them in the background, reminds you so nothing falls through, and reports
-to you over Discord. Nothing binding happens without your approval.
+An always-on background task agent you talk to over Discord (voice or text). You
+hand it tasks; it keeps a permanent record, works them in the background, reminds
+you so nothing falls through, and reports back. Nothing binding happens without
+your approval.
+
+Its brain is **Claude** (Anthropic API) — the local-model era (Qwen3 on LM
+Studio) is retired. That makes Jarvis smarter, faster, and free of any local GPU,
+so the bot can eventually run on a small always-on box instead of a gaming rig.
 
 ## Design principles
 
-- **Free & local.** The brain is a local LLM served by LM Studio (or Ollama)
-  over an OpenAI-compatible API. No per-token cost.
+- **Claude brain.** The brain is Claude via the `anthropic` SDK (default
+  `claude-haiku-4-5`). Pay-per-token via console.anthropic.com; a Claude
+  Pro/Max subscription does **not** cover API usage.
 - **Your tasks never disappear.** Durable SQLite (WAL) + an append-only event
   log + a human-readable markdown mirror + rolling DB backups.
 - **Approve-before-acting.** Jarvis preps everything and asks on Discord before
@@ -21,8 +26,7 @@ to you over Discord. Nothing binding happens without your approval.
 | Layer | State |
 |-------|-------|
 | Durable task memory + CLI | ✅ working |
-| Local model runtime (LM Studio) | ✅ working |
-| Brain client (LLM + tool-calls) | ✅ working |
+| Brain client (Claude + tool-calls) | ✅ working |
 | Background worker + reminders | ✅ working |
 | Discord bot (capture + notify) | ✅ working |
 | Natural-language task capture | ✅ working |
@@ -31,20 +35,33 @@ to you over Discord. Nothing binding happens without your approval.
 | Long-term memory (facts, decisions, records) | ✅ working |
 | Telephony (real calls) | deferred (not free) |
 
+## Setup
+
+Put your Anthropic API key in `.env` at the project root (git-ignored):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+DISCORD_TOKEN=...
+```
+
+Get a key at [console.anthropic.com](https://console.anthropic.com). Billing is
+pay-per-token; set a spend cap in the console if you like.
+
 ## Starting Jarvis
 
 Double-click the **"Start Jarvis"** desktop shortcut (or run
-`scripts/start-jarvis.ps1`). It makes sure LM Studio is running (starting it and
-loading `qwen/qwen3-8b` via the `lms` CLI if needed), clears any stale instance,
-then launches the Discord bot + voice. Keep the window open; Ctrl+C to stop.
+`scripts/start-jarvis.ps1`). It clears any stale instance, checks the API key is
+present, then launches the Discord bot + voice. Keep the window open; Ctrl+C to
+stop. (No local model to boot anymore — just needs the key and internet.)
 
 ## The model
 
-- **Default:** Qwen3-14B @ Q4_K_M, fully GPU-resident (~9 GB weights), KV cache
-  quantized to q8 for a larger context window in the same VRAM.
-- **Fallback:** Qwen3-8B if we need more headroom (e.g. GPU-side voice).
-- Voice models (whisper STT, Piper/Kokoro TTS) run on the **CPU** so the GPU
-  stays dedicated to the LLM.
+- **Default:** `claude-haiku-4-5` — fastest + cheapest, best for the real-time
+  voice loop. Swap with `JARVIS_LLM_MODEL` (e.g. `claude-sonnet-5` for more
+  reasoning power, `claude-opus-5` for maximum intelligence) — no code change.
+- Extended thinking is off by default to keep voice latency low.
+- Voice models (Whisper STT, Kokoro TTS) still run **locally on the CPU**; only
+  the brain is in the cloud.
 
 ## Usage (task CLI)
 
@@ -61,10 +78,10 @@ $j = ".\.venv\Scripts\jarvis.exe"
 & $j reminders          # what the background worker would fire right now
 & $j backup             # manual snapshot of the database
 
-# talk to the local model (the "brain")
-& $j brain --health                       # is the LLM server up? list models
+# talk to Claude (the "brain")
+& $j brain --health                       # can we reach the API? list models
 & $j brain "Summarize my open tasks" -v   # one-shot prompt (-v: reasoning + tok/s)
-& $j brain "Think this through..." --think # enable deeper reasoning mode
+& $j brain "Think this through..." --think # enable extended thinking
 & $j bench                                # benchmark the model: latency, tok/s, tool-use
 
 # the always-on background worker (fires reminders + daily backups)
