@@ -47,12 +47,24 @@ _FILLER_PHRASES = [
 ]
 
 
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"  # emoji, symbols, pictographs, supplemental
+    "\U00002600-\U000027BF"  # misc symbols + dingbats
+    "\U00002190-\U000021FF"  # arrows
+    "\U00002B00-\U00002BFF"  # misc symbols and arrows
+    "\U0000FE00-\U0000FE0F"  # variation selectors
+    "\U00002022"             # bullet
+    "]+"
+)
+
+
 def _speakable(text: str) -> str:
     """Strip markdown/emoji so the reply reads naturally aloud."""
     text = text.replace("**", "").replace("*", "")
     text = re.sub(r"#(\d+)", r"number \1", text)
-    for junk in ("✅", "🔴", "⚪", "📝", "🔔", "✨", "·", "_"):
-        text = text.replace(junk, " ")
+    text = text.replace("·", " ").replace("_", " ")
+    text = _EMOJI_RE.sub(" ", text)  # catch every emoji, not just a fixed list
     return re.sub(r"\s+", " ", text).strip()
 
 

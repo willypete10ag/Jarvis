@@ -136,40 +136,90 @@ def _write_wav(samples: np.ndarray, sr: int) -> str:
     return tmp.name
 
 
-async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[float, float]:
-    """Synthesize ``text`` with Kokoro and play it into the voice channel.
+# Split a reply into speakable chunks (sentences). Very short fragments get
+# merged into the next so Kokoro isn't called on tiny snippets.
+_SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*", re.UNICODE)
+_MIN_CHUNK_CHARS = 24
 
-    Returns ``(synth_seconds, playback_seconds)`` for latency measurement.
+
+def _split_sentences(text: str) -> list[str]:
+    raw = [m.group().strip() for m in _SENTENCE_RE.finditer(text)]
+    raw = [s for s in raw if s]
+    chunks: list[str] = []
+    for s in raw:
+        if chunks and len(chunks[-1]) < _MIN_CHUNK_CHARS:
+            chunks[-1] = f"{chunks[-1]} {s}"
+        else:
+            chunks.append(s)
+    return chunks
+
+
+async def speak_in_vc(vc: "voice_recv.VoiceRecvClient", text: str) -> tuple[float, float]:
+    """Speak ``text`` into the voice channel, streaming it sentence by sentence.
+
+    Kokoro synthesizes at roughly 1x realtime, so synthesizing a whole long reply
+    up front means seconds of silence before Jarvis says anything. Instead we
+    split into sentences and pipeline: start playing sentence 1 as soon as it's
+    synthesized while sentence 2 synthesizes in the background, and so on. This
+    collapses time-to-first-word to about one sentence's worth of synthesis.
+
+    Returns ``(time_to_first_audio, total_playback_seconds)``.
     """
     text = voice_session._speakable(text)
     if not text:
         return (0.0, 0.0)
-
-    t_synth = time.monotonic()
-    samples, sr = await asyncio.to_thread(tts.synthesize, text)
-    path = await asyncio.to_thread(_write_wav, samples, sr)
-    synth_s = time.monotonic() - t_synth
+    sentences = _split_sentences(text)
+    if not sentences:
+        return (0.0, 0.0)
 
     loop = asyncio.get_running_loop()
-    done = asyncio.Event()
+    queue: asyncio.Queue = asyncio.Queue()
 
-    def _after(err: Exception | None) -> None:
-        if err:
-            log.warning("VC playback error: %s", err)
-        loop.call_soon_threadsafe(done.set)
+    async def _synthesize_all() -> None:
+        # One sentence at a time (so Kokoro runs serially), handed off eagerly.
+        for sentence in sentences:
+            try:
+                samples, sr = await asyncio.to_thread(tts.synthesize, sentence)
+                path = await asyncio.to_thread(_write_wav, samples, sr)
+                await queue.put(path)
+            except Exception:
+                log.warning("TTS synth failed for a sentence; skipping", exc_info=True)
+        await queue.put(None)  # end-of-stream sentinel
 
-    t_play = time.monotonic()
+    producer = asyncio.create_task(_synthesize_all())
+
+    t_start = time.monotonic()
+    ttfa: float | None = None
+    play_total = 0.0
+    if vc.is_playing():
+        vc.stop()
+
     try:
-        if vc.is_playing():
-            vc.stop()
-        vc.play(discord.FFmpegPCMAudio(path, executable=_FFMPEG), after=_after)
-        await done.wait()
+        while True:
+            path = await queue.get()
+            if path is None:
+                break
+            done = asyncio.Event()
+
+            def _after(err: Exception | None, ev: asyncio.Event = done) -> None:
+                if err:
+                    log.warning("VC playback error: %s", err)
+                loop.call_soon_threadsafe(ev.set)
+
+            t_play = time.monotonic()
+            if ttfa is None:
+                ttfa = t_play - t_start
+            vc.play(discord.FFmpegPCMAudio(path, executable=_FFMPEG), after=_after)
+            await done.wait()
+            play_total += time.monotonic() - t_play
+            try:
+                os.remove(path)
+            except OSError:
+                pass
     finally:
-        try:
-            os.remove(path)
-        except OSError:
-            pass
-    return (synth_s, time.monotonic() - t_play)
+        await producer
+
+    return (ttfa or 0.0, play_total)
 
 
 def build_greeting(names: list[str]) -> str:
@@ -218,11 +268,12 @@ async def _handle_utterance(vc: "voice_recv.VoiceRecvClient", audio: np.ndarray,
     log.info("VC reply: %s", reply)
     await note(f"🤖 {reply}")
 
-    synth_s, play_s = await speak_in_vc(vc, reply)
+    ttfa_s, play_s = await speak_in_vc(vc, reply)
 
-    # "think" = time from end of speech to Jarvis starting to talk (what we tune).
-    think_s = stt_s + llm_s + synth_s
-    timing = (f"⏱ stt={stt_s:.1f}s llm={llm_s:.1f}s tts={synth_s:.1f}s "
+    # "think" = time from end of speech to Jarvis's FIRST spoken word (with
+    # streaming TTS this is one sentence's synthesis, not the whole reply).
+    think_s = stt_s + llm_s + ttfa_s
+    timing = (f"⏱ stt={stt_s:.1f}s llm={llm_s:.1f}s tts1st={ttfa_s:.1f}s "
               f"play={play_s:.1f}s | think={think_s:.1f}s")
     log.info(timing)
     await note(f"_{timing}_")
