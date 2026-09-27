@@ -1,11 +1,11 @@
 # ============================================================================
-#  Start Jarvis  —  desktop launcher
+#  Start Jarvis  -  desktop launcher
 #  1. Clears any stale Jarvis instance (so Discord voice can reconnect cleanly).
 #  2. Checks the Claude API key is configured (.env).
 #  3. Starts Jarvis (Discord bot + voice).
 #  Leave this window open while using Jarvis. Ctrl+C or close it to stop.
 #
-#  The brain is Claude (Anthropic API) now — there is no local model to boot,
+#  The brain is Claude (Anthropic API) now - there is no local model to boot,
 #  so this just needs the ANTHROPIC_API_KEY in .env and an internet connection.
 # ============================================================================
 
@@ -60,7 +60,7 @@ if ($hasKey) {
 } else {
     Write-Warn "No ANTHROPIC_API_KEY found."
     Write-Warn "Add a line to $EnvFile :   ANTHROPIC_API_KEY=sk-ant-..."
-    Write-Warn "(Get a key at https://console.anthropic.com — billing is pay-per-token.)"
+    Write-Warn "(Get a key at https://console.anthropic.com - billing is pay-per-token.)"
     Read-Host "`nPress Enter to close"; exit 1
 }
 
