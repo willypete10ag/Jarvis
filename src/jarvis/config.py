@@ -139,6 +139,13 @@ VAD_SPEECH_PAD_MS: int = int(os.environ.get("JARVIS_VAD_SPEECH_PAD_MS", "150"))
 # Safety cap: force-endpoint an utterance that runs this long without a pause.
 VAD_MAX_UTTERANCE_S: float = float(os.environ.get("JARVIS_VAD_MAX_UTTERANCE_S", "30"))
 
+# Voice latency: after a tool runs, phrasing the confirmation with a *second* LLM
+# call is the single biggest cost on task turns. When True (default), spoken
+# replies skip that call and speak a cleaned version of the deterministic
+# confirmation instead - much faster, slightly less chatty. Set JARVIS_VOICE_FAST=0
+# to restore the natural-language phrasing pass.
+VOICE_FAST_CONFIRMATIONS: bool = os.environ.get("JARVIS_VOICE_FAST", "1") != "0"
+
 
 def ensure_dirs() -> None:
     """Create every directory Jarvis writes to. Safe to call repeatedly."""

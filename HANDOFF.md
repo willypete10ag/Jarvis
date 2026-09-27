@@ -265,13 +265,20 @@ Next up: the **background worker** (§8 step 4).
   and rejects non-speech noise. ONNX via existing onnxruntime, no PyTorch; ~2 MB
   model auto-downloads to `data/models/`. Falls back to the timer if unavailable
   (`JARVIS_VAD=0` to force). Tunables in `config.py` (`VAD_*`).
-- **NEXT — drop the 2nd LLM call in voice** (suspected biggest cost): have the
-  first reply already be speakable, or gate the phrasing pass. Saves a round-trip.
-- **Stream TTS / start speaking on first sentence** instead of the whole reply;
-  keep the "one moment" filler for the think gap.
-- **Model speed** — cap `max_tokens` for spoken replies, disable deep "thinking"
-  on the voice path, consider speculative decoding (LM Studio draft models).
-- **STT** — `base.en` on CPU is fine; only revisit (`tiny.en`) if timing shows it.
+- ✅ **Streaming TTS + short first chunk** (2026-09-27) — replies are split into
+  small clause-level chunks (`_split_sentences`, cap ~60 chars) and pipelined:
+  Jarvis starts speaking chunk 1 (~1.5-1.8s, mostly Kokoro's fixed per-call
+  overhead) while the rest synthesize during playback. `tts1st` in the timing
+  line is time-to-first-word. Cut it from up to 7.5s to ~1.5s.
+- ✅ **Dropped the 2nd LLM call on voice task turns** (2026-09-27) — spoken tool
+  confirmations are now built deterministically (`_spoken_confirmation`: strips
+  IDs/markdown/emoji, list lines -> commas, 24h -> "4 pm") instead of a second
+  model round-trip. Saves ~2.5-3.5s per task turn. Reversible: `JARVIS_VOICE_FAST=0`
+  restores the natural-language phrasing pass (`_natural_spoken`).
+- **NEXT levers if still too slow:** stream the LLM tokens straight into the TTS
+  pipeline (overlap `llm` with `tts`); reasoning is already off; `base.en` STT is
+  fine (~0.8s). Kokoro's ~1.5s fixed synth overhead is now the first-word floor —
+  a lighter/faster TTS or GPU TTS would be the next big lever if needed.
 
 Original backlog (mostly done):
 1. ✅ **DONE** — Both models downloaded; 8B loaded and serving on `:1234/v1`.

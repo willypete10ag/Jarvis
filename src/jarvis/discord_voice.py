@@ -136,17 +136,44 @@ def _write_wav(samples: np.ndarray, sr: int) -> str:
     return tmp.name
 
 
-# Split a reply into speakable chunks (sentences). Very short fragments get
-# merged into the next so Kokoro isn't called on tiny snippets.
+# Split a reply into small speakable chunks so the first one synthesizes fast
+# (Kokoro runs ~1x realtime, so a long first chunk = a long silence before Jarvis
+# speaks). We break on sentences, then break any long sentence on clause
+# boundaries (commas/semicolons/colons), capping chunk length. Tiny fragments are
+# merged forward so Kokoro isn't called on 3-word snippets.
 _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]*", re.UNICODE)
 _MIN_CHUNK_CHARS = 24
+_MAX_CHUNK_CHARS = 60
+
+
+def _split_long(sentence: str) -> list[str]:
+    parts = re.split(r"(?<=[,;:])\s+", sentence)
+    chunks: list[str] = []
+    cur = ""
+    for p in parts:
+        if cur and len(cur) + len(p) + 1 > _MAX_CHUNK_CHARS:
+            chunks.append(cur)
+            cur = p
+        else:
+            cur = f"{cur} {p}".strip()
+    if cur:
+        chunks.append(cur)
+    return chunks
 
 
 def _split_sentences(text: str) -> list[str]:
-    raw = [m.group().strip() for m in _SENTENCE_RE.finditer(text)]
-    raw = [s for s in raw if s]
+    pieces: list[str] = []
+    for m in _SENTENCE_RE.finditer(text):
+        sent = m.group().strip()
+        if not sent:
+            continue
+        if len(sent) <= _MAX_CHUNK_CHARS:
+            pieces.append(sent)
+        else:
+            pieces.extend(_split_long(sent))
+
     chunks: list[str] = []
-    for s in raw:
+    for s in pieces:
         if chunks and len(chunks[-1]) < _MIN_CHUNK_CHARS:
             chunks[-1] = f"{chunks[-1]} {s}"
         else:

@@ -19,6 +19,7 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from jarvis import config
 from jarvis.brain import client as brain
 from jarvis.memory import recall
 from jarvis.memory import tasks as T
@@ -300,6 +301,38 @@ def _strip_markup(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+def _speak_time(m: "re.Match") -> str:
+    """Render a 24-hour ``HH:MM`` as spoken 12-hour time (e.g. 16:00 -> '4 pm')."""
+    h, mm = int(m.group(1)), int(m.group(2))
+    if h > 23 or mm > 59:
+        return m.group(0)  # not a time (e.g. a ratio); leave it
+    suffix = "am" if h < 12 else "pm"
+    h12 = h % 12 or 12
+    return f"{h12} {suffix}" if mm == 0 else f"{h12}:{mm:02d} {suffix}"
+
+
+def _spoken_confirmation(confirmations: list[str]) -> str:
+    """Turn the deterministic tool confirmations into clean speech, no LLM call.
+
+    Fast path for voice: drops IDs/markdown/emoji and turns list lines into
+    spoken commas, so a task turn doesn't pay for a second model round-trip.
+    """
+    text = "\n".join(c for c in confirmations if c)
+    text = text.replace("**", "").replace("*", "")
+    text = re.sub(r"#\d+", "", text)  # drop task IDs entirely
+    for junk in ("✅", "🔴", "⚪", "📝", "🔔", "✨", "🧠", "•", "⚠️"):
+        text = text.replace(junk, " ")
+    text = text.replace("·", ",")
+    text = text.replace("\n", ", ")          # list lines -> spoken commas
+    text = re.sub(r"\b(\d{1,2}):(\d{2})\b", _speak_time, text)  # 16:00 -> 4 pm
+    text = re.sub(r"\s+:\s+", " ", text)     # "Added : Water" -> "Added Water"
+    text = re.sub(r":\s*,\s*", ": ", text)   # "tasks: , Water" -> "tasks: Water"
+    text = re.sub(r",\s*(,|\.)", r"\1", text)  # collapse stray commas
+    text = re.sub(r"\s+([,.])", r"\1", text)   # no space before , or .
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or "Done."
+
+
 def _natural_spoken(user_message: str, confirmations: list[str]) -> str:
     """Phrase what was just done as one natural, spoken sentence (a 2nd LLM call).
 
@@ -360,7 +393,12 @@ def handle(message: str, *, spoken: bool = False, channel: str = "") -> str:
     else:
         confirmations = [_dispatch(tc) for tc in res.tool_calls]
         deterministic = "\n".join(r for r in confirmations if r) or "Done."
-        out = _natural_spoken(message, confirmations) if spoken else deterministic
+        if not spoken:
+            out = deterministic
+        elif config.VOICE_FAST_CONFIRMATIONS:
+            out = _spoken_confirmation(confirmations)  # fast: no 2nd LLM call
+        else:
+            out = _natural_spoken(message, confirmations)
 
     recall.add_turn("assistant", out, channel=channel)
     return out
