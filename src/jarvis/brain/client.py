@@ -93,6 +93,10 @@ def _get_client() -> anthropic.Anthropic:
     base = (config.LLM_BASE_URL or "").strip()
     if base and base != "https://api.anthropic.com":
         kwargs["base_url"] = base
+    # Org-scoped keys must name a workspace on every request.
+    ws = (config.ANTHROPIC_WORKSPACE_ID or "").strip()
+    if ws:
+        kwargs["default_headers"] = {"anthropic-workspace-id": ws}
 
     _client = anthropic.Anthropic(**kwargs)
     return _client
@@ -245,9 +249,13 @@ def chat(
         # the caller's ceiling is too low to fit both the thought and the answer.
         params["max_tokens"] = max(max_tokens, _THINK_BUDGET + _THINK_HEADROOM)
         params["thinking"] = {"type": "enabled", "budget_tokens": _THINK_BUDGET}
-        # Sampling controls aren't allowed alongside extended thinking.
-    else:
-        params["temperature"] = temperature
+
+    # NOTE: temperature/top_p/top_k are intentionally NOT sent. The current Claude
+    # models drop sampling controls from messages.create (Sonnet 5 / Opus 5 reject
+    # them; the SDK signature omits `temperature` entirely). The `temperature`
+    # argument is kept in this function's signature for call-site compatibility
+    # but is not forwarded to the API.
+    _ = temperature
 
     request_timeout = config.LLM_TIMEOUT if timeout is None else timeout
 
@@ -275,7 +283,12 @@ def ask(prompt: str, *, system: Optional[str] = None, **kwargs: Any) -> ChatResu
 
 
 def list_models() -> list[str]:
-    """Return the model ids the account can access."""
+    """Return the model ids the account can access.
+
+    Note: the ``/v1/models`` endpoint requires an ``anthropic-workspace-id``
+    header for org-scoped keys, so this can fail even when chat works fine. Use
+    :func:`health` (a real message ping) to check connectivity.
+    """
     client = _get_client()
     try:
         return [m.id for m in client.models.list()]
@@ -284,8 +297,23 @@ def list_models() -> list[str]:
 
 
 def health() -> tuple[bool, Any]:
-    """Check the brain. Returns ``(True, [model ids])`` or ``(False, error str)``."""
+    """Check the brain with a minimal live message.
+
+    Returns ``(True, [status line])`` or ``(False, error str)``. This pings
+    ``messages.create`` (which any valid key can call) rather than the models
+    list endpoint, so it works with workspace- and org-scoped keys alike.
+    """
     try:
-        return True, list_models()
+        client = _get_client()
+        client.messages.create(
+            model=config.LLM_MODEL,
+            max_tokens=1,
+            messages=[{"role": "user", "content": "ping"}],
+        )
+        return True, [f"{config.LLM_MODEL} (reachable)"]
     except BrainError as e:
         return False, str(e)
+    except anthropic.APIError as e:
+        return False, f"Claude API error: {e}"
+    except Exception as e:
+        return False, f"Brain check failed: {e}"

@@ -75,6 +75,13 @@ BACKUP_RETENTION: int = 30
 # `ANTHROPIC_API_KEY` is the SDK's standard name, so it's read directly.
 ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")
 
+# Optional. Only needed if your key is ORG-scoped rather than workspace-scoped
+# (the API then rejects requests with "not scoped to a workspace"). Either set
+# this to your workspace id (looks like `wrkspc_...`, from the console URL when
+# viewing the workspace), or - simpler - create a workspace-scoped API key and
+# leave this blank. When set, it's sent as the anthropic-workspace-id header.
+ANTHROPIC_WORKSPACE_ID: str = os.environ.get("ANTHROPIC_WORKSPACE_ID", "")
+
 # The daily-driver model. Haiku 4.5 is the default: fastest + cheapest, which
 # matters most for a real-time voice loop, and still far more capable than the
 # old local model. Bump to `claude-sonnet-5` for more reasoning power, or
