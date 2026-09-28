@@ -137,6 +137,20 @@ HOMELAB_TIMEOUT: float = float(os.environ.get("JARVIS_HOMELAB_TIMEOUT", "8"))
 
 
 # ---------------------------------------------------------------------------
+# Calendar (Apple Calendar via iCloud CalDAV) - READ-ONLY for now
+# ---------------------------------------------------------------------------
+# Apple Calendar syncs to iCloud, which speaks CalDAV. Jarvis reads your agenda
+# with your Apple ID + an APP-SPECIFIC password (create one at appleid.apple.com
+# -> Sign-In and Security -> App-Specific Passwords; it is NOT your real password
+# and is revocable). Both go in <root>/.env. Blank -> the calendar tool is inert.
+APPLE_ID: str = os.environ.get("APPLE_ID", "")
+APPLE_APP_PASSWORD: str = os.environ.get("APPLE_APP_PASSWORD", "")
+# CalDAV endpoint. iCloud's default works for Apple Calendar; change only for a
+# different CalDAV provider.
+CALDAV_URL: str = os.environ.get("JARVIS_CALDAV_URL", "https://caldav.icloud.com")
+
+
+# ---------------------------------------------------------------------------
 # Discord (task capture + reminders that reach your phone)
 # ---------------------------------------------------------------------------
 # The bot token is a secret; it lives in <root>/.env (git-ignored), never here.

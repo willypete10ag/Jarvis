@@ -129,8 +129,17 @@ TOOLS: list[dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "whats_downloading",
-            "description": "Report what's currently downloading in the media stack (Sonarr/Radarr queue), with progress. Use for 'what's downloading', 'anything grabbing right now'.",
-            "parameters": {"type": "object", "properties": {}},
+            "description": "Report what's currently downloading, with progress and whether each is via usenet or torrent. Set kind to 'shows' for TV (Sonarr), 'movies' (Radarr), or 'all'. Use for 'what's downloading', 'what shows/movies are downloading'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["all", "shows", "movies"],
+                        "description": "Which downloads to report: shows, movies, or all (default).",
+                    }
+                },
+            },
         },
     },
     {
@@ -179,6 +188,22 @@ TOOLS: list[dict[str, Any]] = [
             "name": "system_status",
             "description": "Report system health: this PC's stats, the Pi's stats (CPU, RAM, load, temperature), and which homelab services are up. Use for 'how's the system', 'how's the Pi doing', 'are my services up', 'system status'.",
             "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_calendar",
+            "description": "Read the user's calendar (Apple Calendar via iCloud) and report events. READ-ONLY - it does not create or change events. Use for 'what's on my calendar', 'what do I have today/tomorrow/this week', 'am I free Friday', 'anything on Monday'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "when": {
+                        "type": "string",
+                        "description": "Which window: 'today' (default), 'tomorrow', 'week', or a day like 'Friday'.",
+                    }
+                },
+            },
         },
     },
 ]
@@ -355,9 +380,9 @@ def _h_forget(args: dict[str, Any]) -> str:
 
 
 # --- Homelab handlers (thin wrappers over jarvis.homelab) ---
-def _h_whats_downloading(_args: dict[str, Any]) -> str:
+def _h_whats_downloading(args: dict[str, Any]) -> str:
     from jarvis import homelab
-    return homelab.downloading()
+    return homelab.downloading(str(args.get("kind", "all")))
 
 
 def _h_series_status(args: dict[str, Any]) -> str:
@@ -385,6 +410,11 @@ def _h_system_status(_args: dict[str, Any]) -> str:
     return homelab.system_status()
 
 
+def _h_check_calendar(args: dict[str, Any]) -> str:
+    from jarvis import calendar_tool
+    return calendar_tool.agenda(str(args.get("when", "today")))
+
+
 _HANDLERS = {
     "add_task": _h_add_task,
     "list_tasks": _h_list_tasks,
@@ -398,6 +428,7 @@ _HANDLERS = {
     "whats_playing": _h_whats_playing,
     "whats_on_deck": _h_whats_on_deck,
     "system_status": _h_system_status,
+    "check_calendar": _h_check_calendar,
 }
 
 

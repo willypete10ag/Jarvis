@@ -69,7 +69,7 @@ def _queue_items(base: str, key: str) -> list[dict]:
 
 
 def _short_item(r: dict) -> str:
-    """A speech-friendly 'Show S01E07 at 45 percent' from a queue record."""
+    """A speech-friendly 'Show S01E07 at 45 percent via torrent' from a queue record."""
     ep = r.get("episode") or {}
     ser = r.get("series") or {}
     mov = r.get("movie") or {}
@@ -83,32 +83,44 @@ def _short_item(r: dict) -> str:
     size = r.get("size") or 0
     left = r.get("sizeleft") or 0
     pct = int((size - left) / size * 100) if size else 0
-    return f"{label} at {pct} percent"
+    proto = (r.get("protocol") or "").lower()
+    via = " via usenet" if proto == "usenet" else (" via torrent" if proto == "torrent" else "")
+    return f"{label} at {pct} percent{via}"
 
 
-def downloading() -> str:
-    """Summarize what's currently downloading across Sonarr and Radarr."""
-    if not (config.SONARR_API_KEY or config.RADARR_API_KEY):
-        return "No download services are configured yet."
+def downloading(kind: str = "all") -> str:
+    """What's downloading. ``kind``: 'shows' (Sonarr), 'movies' (Radarr), or 'all'."""
+    kind = (kind or "all").lower()
+    want_shows = kind in ("all", "shows", "show", "tv", "series")
+    want_movies = kind in ("all", "movies", "movie", "films", "film")
+
+    sources = []
+    if want_shows:
+        sources.append(("shows", config.SONARR_URL, config.SONARR_API_KEY))
+    if want_movies:
+        sources.append(("movies", config.RADARR_URL, config.RADARR_API_KEY))
+    configured = [s for s in sources if s[2]]
+    if not configured:
+        if not (config.SONARR_API_KEY or config.RADARR_API_KEY):
+            return "No download services are configured yet."
+        return "Sonarr isn't configured yet." if want_shows else "Radarr isn't configured yet."
+
     items: list[str] = []
-    for label, base, key in (
-        ("show", config.SONARR_URL, config.SONARR_API_KEY),
-        ("movie", config.RADARR_URL, config.RADARR_API_KEY),
-    ):
-        if not key:
-            continue
+    for label, base, key in configured:
         try:
             items += [_short_item(r) for r in _queue_items(base, key)]
         except Exception as e:
             log.warning("%s queue check failed: %s", label, e)
-            items.append(f"(couldn't reach {label} downloads)")
+            items.append(f"(couldn't reach {label})")
+    noun = "shows" if kind.startswith("show") or kind in ("tv", "series") else \
+           ("movies" if want_movies and not want_shows else "downloads")
     if not items:
-        return "Nothing's downloading right now."
+        return f"No {noun} are downloading right now." if noun != "downloads" else "Nothing's downloading right now."
     n = len(items)
     shown = items[:3]
     tail = f", and {n - 3} more" if n > 3 else ""
-    lead = "One download" if n == 1 else f"{n} downloads"
-    return f"{lead} going: " + "; ".join(shown) + tail + "."
+    lead = f"One {noun[:-1] if noun.endswith('s') and n == 1 else noun}" if n == 1 else f"{n} {noun}"
+    return f"{lead} downloading: " + "; ".join(shown) + tail + "."
 
 
 def series_status(title: str) -> str:
