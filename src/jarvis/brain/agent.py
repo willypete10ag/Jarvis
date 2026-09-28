@@ -127,29 +127,60 @@ TOOLS: list[dict[str, Any]] = [
 ]
 
 
-def _system_prompt() -> str:
+# Fallback persona, used only if the editable persona file is missing. The
+# real, hand-editable version lives at config.PERSONA_PATH (persona.md).
+_DEFAULT_PERSONA = (
+    "You are Jarvis, Will's personal AI assistant, styled after Tony Stark's "
+    "J.A.R.V.I.S.: composed, courteous, quietly brilliant, with an English "
+    "butler's polish and a dry wit. You call him 'sir' now and then. You run as "
+    "a bot in his Discord and talk with him by voice and text; when he tells you "
+    "to leave/go/hang up in a voice call, that means disconnect - take it "
+    "gracefully. You keep his world in order (tasks, reminders, notes) and "
+    "remember what matters so he needn't repeat himself. Speak like a person: "
+    "short, natural, no markdown or lists or emoji, since your words are read "
+    "aloud. Be proactive and honest about what you can't yet do; nothing "
+    "irreversible without his nod."
+)
+
+
+def _persona() -> str:
+    """Load Jarvis's persona from the editable file, or fall back to the default."""
+    try:
+        if config.PERSONA_PATH.exists():
+            text = config.PERSONA_PATH.read_text(encoding="utf-8").strip()
+            if text:
+                return text
+    except OSError:
+        log.warning("could not read persona file %s", config.PERSONA_PATH, exc_info=True)
+    return _DEFAULT_PERSONA
+
+
+def _system_prompt(spoken: bool = False) -> str:
     now = datetime.now().astimezone()
     parts = [
-        "You are Jarvis, a personal task assistant running on the user's PC. "
-        "Read the user's message and call the single most appropriate tool. "
+        _persona(),
         f"Right now it is {now:%A, %Y-%m-%d %H:%M} local time.",
+        "TOOLS: when the user wants something done - a task, reminder, note, or a "
+        "fact to remember or forget - call the single most appropriate tool. If "
+        "they're only chatting, just reply; don't force a tool.",
         "TIMES: for 'due' and 'remind', copy the user's own time wording verbatim "
         "(e.g. 'next Friday', 'in 3 days', 'tomorrow at 2pm', '2026-10-01 14:30'). "
         "Do NOT convert or do date math yourself - the system resolves it reliably.",
         "MEMORY: save durable facts with the remember tool - clear preferences, "
         "contacts, appointment outcomes, and task context - and always save what the "
         "user explicitly asks you to remember. If it is genuinely ambiguous whether "
-        "something is worth saving, ASK the user first and save it only after they "
-        "confirm. Use what you already know (below) to answer, and don't ask for "
-        "details you already have.",
+        "something is worth saving, ask once first. Use what you already know (below) "
+        "to answer, and don't ask for details you already have.",
     ]
+    if spoken:
+        parts.append(
+            "SPOKEN MODE: your reply will be read aloud. Keep it to one or two "
+            "short, natural sentences. Absolutely no markdown, bullet or numbered "
+            "lists, emoji, symbols, or ID numbers - only words a person would say."
+        )
     known = recall.recall_block()
     if known:
         parts.append("WHAT YOU ALREADY KNOW:\n" + known)
-    parts.append(
-        "If the user is only chatting and there is nothing to do, reply briefly "
-        "without calling a tool."
-    )
     return "\n\n".join(parts)
 
 
@@ -292,10 +323,24 @@ def _dispatch(tool_call: dict[str, Any]) -> str:
         return f"⚠️ Something went wrong doing that ({e})."
 
 
+# Emoji / pictographic symbol ranges - stripped so TTS never tries to read them.
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F300-\U0001FAFF"   # symbols, pictographs, emoji, supplemental
+    "\U00002600-\U000027BF"   # misc symbols + dingbats
+    "\U0001F1E6-\U0001F1FF"   # regional indicators (flags)
+    "\U00002190-\U000021FF"   # arrows
+    "\U00002B00-\U00002BFF"   # misc symbols and arrows
+    "\U0000FE0F"              # emoji variation selector
+    "]"
+)
+
+
 def _strip_markup(text: str) -> str:
     """Remove markdown/emoji/IDs so text reads cleanly aloud."""
     text = text.replace("**", "").replace("*", "")
     text = re.sub(r"#(\d+)", r"\1", text)
+    text = _EMOJI_RE.sub("", text)
     for junk in ("✅", "🔴", "⚪", "📝", "🔔", "✨", "·", "_"):
         text = text.replace(junk, " ")
     return re.sub(r"\s+", " ", text).strip()
@@ -320,6 +365,7 @@ def _spoken_confirmation(confirmations: list[str]) -> str:
     text = "\n".join(c for c in confirmations if c)
     text = text.replace("**", "").replace("*", "")
     text = re.sub(r"#\d+", "", text)  # drop task IDs entirely
+    text = _EMOJI_RE.sub("", text)
     for junk in ("✅", "🔴", "⚪", "📝", "🔔", "✨", "🧠", "•", "⚠️"):
         text = text.replace(junk, " ")
     text = text.replace("·", ",")
@@ -380,7 +426,7 @@ def handle(message: str, *, spoken: bool = False, channel: str = "") -> str:
     # Record the user's turn, then pull recent context (which now includes it).
     recall.add_turn("user", message, channel=channel)
     history = recall.recent_turns(limit=8)
-    messages = [{"role": "system", "content": _system_prompt()}, *history]
+    messages = [{"role": "system", "content": _system_prompt(spoken=spoken)}, *history]
 
     try:
         res = brain.chat(messages, tools=TOOLS, max_tokens=512, temperature=0)

@@ -54,6 +54,11 @@ MODELS_DIR: Path = DATA_DIR / "models"
 # The durable task database. Override with JARVIS_DB env var (handy for tests).
 DB_PATH: Path = Path(os.environ.get("JARVIS_DB", DATA_DIR / "jarvis.db"))
 
+# Jarvis's persona / system prompt. This plain-text file (editable by hand) sets
+# who Jarvis is, what he does, and how he speaks. If it's missing, a baked-in
+# default is used. Override the location with JARVIS_PERSONA.
+PERSONA_PATH: Path = Path(os.environ.get("JARVIS_PERSONA", PROJECT_ROOT / "persona.md"))
+
 # Human-readable mirror of the task list. This is written on every change so a
 # real, openable record of your tasks exists even if nothing is running.
 TASKS_MIRROR_PATH: Path = NOTES_DIR / "tasks.md"
