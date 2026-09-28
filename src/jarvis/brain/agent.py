@@ -124,6 +124,63 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    # --- Homelab: media stack (Plex / *ARR) + system monitoring ---
+    {
+        "type": "function",
+        "function": {
+            "name": "whats_downloading",
+            "description": "Report what's currently downloading in the media stack (Sonarr/Radarr queue), with progress. Use for 'what's downloading', 'anything grabbing right now'.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "series_status",
+            "description": "Report how complete a TV show is in the library and how many episodes are missing. Use for 'do I have all of X', 'is X complete', 'how much of X is missing'.",
+            "parameters": {
+                "type": "object",
+                "properties": {"title": {"type": "string", "description": "The show's name"}},
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_missing_episodes",
+            "description": "Kick off a search to download the missing episodes of a TV show already in the library. Use for 'find the missing episodes of X', 'grab what's missing for X'.",
+            "parameters": {
+                "type": "object",
+                "properties": {"title": {"type": "string", "description": "The show's name"}},
+                "required": ["title"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "whats_playing",
+            "description": "Report what's currently streaming on Plex right now, including whether it's transcoding or direct playing. Use for 'what's playing', 'is anything streaming', 'is anything transcoding'.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "whats_on_deck",
+            "description": "Report what's queued up to watch next on Plex (On Deck). Use for 'what should I watch', 'what's on deck', 'what's next'.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "system_status",
+            "description": "Report system health: this PC's stats, the Pi's stats (CPU, RAM, load, temperature), and which homelab services are up. Use for 'how's the system', 'how's the Pi doing', 'are my services up', 'system status'.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
 ]
 
 
@@ -163,6 +220,11 @@ def _system_prompt(spoken: bool = False) -> str:
         "TOOLS: when the user wants something done - a task, reminder, note, or a "
         "fact to remember or forget - call the single most appropriate tool. If "
         "they're only chatting, just reply; don't force a tool.",
+        "LIVE SYSTEMS: for anything about the current state of his systems - what's "
+        "downloading, whether a show is complete, what's playing on Plex, what's on "
+        "deck, or how the PC/Pi/services are doing - ALWAYS call the matching tool "
+        "and answer from its result. Never guess or answer these from memory; if a "
+        "tool says a service isn't connected, tell him that plainly.",
         "TIMES: for 'due' and 'remind', copy the user's own time wording verbatim "
         "(e.g. 'next Friday', 'in 3 days', 'tomorrow at 2pm', '2026-10-01 14:30'). "
         "Do NOT convert or do date math yourself - the system resolves it reliably.",
@@ -292,6 +354,37 @@ def _h_forget(args: dict[str, Any]) -> str:
     )
 
 
+# --- Homelab handlers (thin wrappers over jarvis.homelab) ---
+def _h_whats_downloading(_args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.downloading()
+
+
+def _h_series_status(args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.series_status(str(args.get("title", "")))
+
+
+def _h_search_missing(args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.search_missing(str(args.get("title", "")))
+
+
+def _h_whats_playing(_args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.now_playing()
+
+
+def _h_whats_on_deck(_args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.on_deck()
+
+
+def _h_system_status(_args: dict[str, Any]) -> str:
+    from jarvis import homelab
+    return homelab.system_status()
+
+
 _HANDLERS = {
     "add_task": _h_add_task,
     "list_tasks": _h_list_tasks,
@@ -299,6 +392,12 @@ _HANDLERS = {
     "add_note": _h_add_note,
     "remember": _h_remember,
     "forget": _h_forget,
+    "whats_downloading": _h_whats_downloading,
+    "series_status": _h_series_status,
+    "search_missing_episodes": _h_search_missing,
+    "whats_playing": _h_whats_playing,
+    "whats_on_deck": _h_whats_on_deck,
+    "system_status": _h_system_status,
 }
 
 

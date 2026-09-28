@@ -10,6 +10,11 @@
 # in .env as ANTHROPIC_API_KEY. Swap models with JARVIS_LLM_MODEL (no code change).
 anthropic>=1.8
 
+# --- Homelab connectors (system monitoring) ---
+# psutil reads local PC stats (CPU/RAM/disk/uptime) for the system-status tool.
+# The Plex/*ARR and netdata calls use only the stdlib (urllib), no package.
+psutil>=5.9
+
 # --- Interface: Discord bot (capture tasks + reminders + notifications) ---
 # Voice needs discord.py 2.7+ and `davey`: as of 2026-03-02 Discord GLOBALLY
 # enforces DAVE (MLS end-to-end voice encryption). Older gateways are rejected

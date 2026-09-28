@@ -102,6 +102,41 @@ LLM_TIMEOUT: float = float(os.environ.get("JARVIS_LLM_TIMEOUT", "120"))
 
 
 # ---------------------------------------------------------------------------
+# Homelab connectors (Plex / *ARR media stack + system monitoring)
+# ---------------------------------------------------------------------------
+# Each service is optional: a tool is "live" only when its URL (and API key,
+# where needed) are set, otherwise Jarvis reports it as not configured. Keys are
+# secrets -> put them in <root>/.env. URLs default to the Pi's hostname; change
+# JARVIS_*_URL if a service moves.
+_PI = os.environ.get("JARVIS_PI_HOST", "raspberrypi.local")
+
+SONARR_URL: str = os.environ.get("JARVIS_SONARR_URL", f"http://{_PI}:8989")
+SONARR_API_KEY: str = os.environ.get("SONARR_API_KEY", "")
+RADARR_URL: str = os.environ.get("JARVIS_RADARR_URL", f"http://{_PI}:7878")
+RADARR_API_KEY: str = os.environ.get("RADARR_API_KEY", "")
+PROWLARR_URL: str = os.environ.get("JARVIS_PROWLARR_URL", f"http://{_PI}:9696")
+PROWLARR_API_KEY: str = os.environ.get("PROWLARR_API_KEY", "")
+
+# Plex uses an X-Plex-Token (not an API key). Get yours by following Plex's
+# "finding an authentication token" guide. Left blank -> Plex tools are inert.
+PLEX_URL: str = os.environ.get("JARVIS_PLEX_URL", f"http://{_PI}:32400")
+PLEX_TOKEN: str = os.environ.get("PLEX_TOKEN", "")
+
+# SABnzbd (usenet). Its API key is under Config -> General.
+SAB_URL: str = os.environ.get("JARVIS_SAB_URL", f"http://{_PI}:8080")
+SAB_API_KEY: str = os.environ.get("SAB_API_KEY", "")
+
+# netdata runs on the Pi and exposes a metrics REST API (default port 19999),
+# so Jarvis can read Pi CPU/RAM/temp/disk and per-container stats over HTTP -
+# no SSH needed. Blank -> Pi stats are skipped.
+NETDATA_URL: str = os.environ.get("JARVIS_NETDATA_URL", f"http://{_PI}:19999")
+
+# Seconds to wait on any homelab HTTP call before giving up (keep short so a
+# down service fails fast instead of hanging a voice reply).
+HOMELAB_TIMEOUT: float = float(os.environ.get("JARVIS_HOMELAB_TIMEOUT", "8"))
+
+
+# ---------------------------------------------------------------------------
 # Discord (task capture + reminders that reach your phone)
 # ---------------------------------------------------------------------------
 # The bot token is a secret; it lives in <root>/.env (git-ignored), never here.
